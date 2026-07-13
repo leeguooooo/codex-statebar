@@ -187,6 +187,23 @@ def _append_suffix(content: str, suffix: str) -> str:
     return content + suffix
 
 
+def _for_codex_footer(content: str) -> str:
+    """Collapse cxs' rich multi-line layout into Codex's single footer row.
+
+    Claude Code can reserve several rows for statusLine stdout. Codex 0.144.1's
+    footer owns one row, so preserve every segment in order and join the lines
+    instead of silently dropping project/branch/mode information after line 1.
+    ANSI styling stays intact because each source line already resets its own
+    spans.
+    """
+    if os.environ.get("CODEX_STATUS_LINE") != "1":
+        return content
+    trailing_newline = content.endswith("\n")
+    lines = [line for line in content.splitlines() if line.strip()]
+    collapsed = "  ·  ".join(lines)
+    return collapsed + ("\n" if trailing_newline and collapsed else "")
+
+
 def _consume_stdin() -> bytes | None:
     """Read Claude Code's stdin payload (bytes) and return it.
 
@@ -366,7 +383,9 @@ def _fallback_inline() -> int:
     buf = _io.StringIO()
     with contextlib.redirect_stdout(buf):
         core_main()
-    sys.stdout.write(_append_suffix(buf.getvalue(), _displacement_suffix()))
+    sys.stdout.write(
+        _for_codex_footer(_append_suffix(buf.getvalue(), _displacement_suffix()))
+    )
     return 0
 
 
@@ -395,7 +414,9 @@ def render() -> int:
     if meta is not None and _is_fresh(meta):
         try:
             content = rendered_path.read_text(encoding="utf-8")
-            sys.stdout.write(_append_suffix(content, _displacement_suffix()))
+            sys.stdout.write(
+                _for_codex_footer(_append_suffix(content, _displacement_suffix()))
+            )
             return 0
         except OSError:
             # rendered.ansi disappeared between the meta read and the read.

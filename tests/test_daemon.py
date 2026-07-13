@@ -19,6 +19,18 @@ import pytest
 
 from codex_statebar import daemon as _d
 from codex_statebar import render_thin
+
+
+def test_codex_footer_collapses_multiline_output(monkeypatch):
+    monkeypatch.setenv("CODEX_STATUS_LINE", "1")
+    value = render_thin._for_codex_footer("usage\nproject\nmode\n")
+    assert value == "usage  ·  project  ·  mode\n"
+
+
+def test_non_codex_renderer_preserves_multiline_output(monkeypatch):
+    monkeypatch.delenv("CODEX_STATUS_LINE", raising=False)
+    value = "usage\nproject\n"
+    assert render_thin._for_codex_footer(value) == value
 from codex_statebar.setup import (
     _is_our_statusline,
     _statusline_config,

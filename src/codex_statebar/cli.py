@@ -68,7 +68,10 @@ def _run_config_subcommand(rest):
         print(f"color_ok            = {cfg.color_ok or '(theme default)'}")
         print(f"color_warn          = {cfg.color_warn or '(theme default)'}")
         print(f"color_hot           = {cfg.color_hot or '(theme default)'}")
-        print(f"\nfile: {cfg_mod.CONFIG_PATH}")
+        source = cfg_mod.effective_config_path()
+        print(f"\nfile: {source}")
+        if source != cfg_mod.CONFIG_PATH:
+            print(f"inherited by cxs; overrides write to: {cfg_mod.CONFIG_PATH}")
         return 0
 
     if action == "set":
@@ -415,6 +418,15 @@ Integration:
         help="Show detailed breakdown of usage data and limits",
     )
     parser.add_argument(
+        "--session",
+        type=str,
+        metavar="THREAD_ID",
+        help=(
+            "Read one exact Codex rollout. By default standalone cxs only "
+            "uses top-level terminal (source=cli) sessions for the current cwd."
+        ),
+    )
+    parser.add_argument(
         "--plan",
         type=str,
         help=(
@@ -535,6 +547,8 @@ Integration:
 
     if args.no_auto_update:
         os.environ['CODEX_STATEBAR_NO_UPDATE'] = '1'
+    if args.session:
+        os.environ['CODEX_STATEBAR_THREAD_ID'] = args.session
 
     # Run the status bar
     use_color = not (args.no_color or no_color_env)

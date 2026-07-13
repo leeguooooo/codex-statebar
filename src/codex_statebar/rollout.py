@@ -1,6 +1,7 @@
 """Codex rollout JSONL data source.
 
-The statebar reads only local session records under ``$CODEX_HOME/sessions``.
+The statebar reads only local session records under ``$CODEX_HOME/sessions``
+and ``$CODEX_HOME/archived_sessions``.
 It never reads ``auth.json`` and never sends prompt or session data anywhere.
 """
 
@@ -8,12 +9,16 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
+import time
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 
 TAIL_BYTES = 2 * 1024 * 1024
-HEAD_BYTES = 256 * 1024
+ROUTING_BYTES = 16 * 1024
+RECENT_ROLLOUT_SECONDS = 48 * 60 * 60
+MAX_RECENT_ROLLOUTS = 512
 
 
 def codex_home() -> Path:
@@ -30,11 +35,6 @@ def _json_lines(blob: bytes) -> Iterable[dict]:
             yield item
 
 
-def _head(path: Path) -> bytes:
-    with path.open("rb") as handle:
-        return handle.read(HEAD_BYTES)
-
-
 def _tail(path: Path) -> bytes:
     with path.open("rb") as handle:
         handle.seek(0, os.SEEK_END)
@@ -47,11 +47,79 @@ def _tail(path: Path) -> bytes:
 
 
 def _meta(path: Path) -> dict:
-    for event in _json_lines(_head(path)):
+    try:
+        with path.open("rb") as handle:
+            raw = handle.readline()
+        event = json.loads(raw)
         if event.get("type") == "session_meta":
             payload = event.get("payload")
             return payload if isinstance(payload, dict) else {}
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, AttributeError):
+        pass
     return {}
+
+
+_ROUTING_FIELD = re.compile(
+    rb'"(?P<key>cwd|source|originator)"\s*:\s*"(?P<value>(?:\\.|[^"\\])*)"'
+)
+
+
+def _routing_meta(path: Path) -> dict:
+    """Read only early routing fields from a potentially huge metadata line."""
+    try:
+        with path.open("rb") as handle:
+            prefix = handle.read(ROUTING_BYTES)
+    except OSError:
+        return {}
+    result = {}
+    for match in _ROUTING_FIELD.finditer(prefix):
+        try:
+            # Decode JSON string escapes without parsing the intentionally
+            # truncated (and therefore invalid) full session_meta object.
+            result[match.group("key").decode("ascii")] = json.loads(
+                b'"' + match.group("value") + b'"'
+            )
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            continue
+    return result
+
+
+def _rollout_roots() -> Iterable[Path]:
+    home = codex_home()
+    for name in ("sessions", "archived_sessions"):
+        root = home / name
+        if root.is_dir():
+            yield root
+
+
+def _rollout_files(root: Path, *, recent_only: bool = False) -> Iterable[Path]:
+    """Yield newest rollouts first for both nested and flat Codex stores."""
+    try:
+        files = root.rglob("rollout-*.jsonl")
+        ordered = sorted(files, key=lambda path: path.stat().st_mtime,
+                         reverse=True)
+        if not recent_only:
+            yield from ordered
+            return
+        cutoff = time.time() - RECENT_ROLLOUT_SECONDS
+        for index, path in enumerate(ordered):
+            if index >= MAX_RECENT_ROLLOUTS or path.stat().st_mtime < cutoff:
+                break
+            yield path
+    except OSError:
+        return
+
+
+def _is_cli_session(meta: dict) -> bool:
+    """True only for a top-level Codex terminal session.
+
+    Codex Desktop writes rollouts into the same store and often shares the
+    same cwd. A standalone shell command cannot know which Desktop tab the
+    user meant, so silently selecting one produces convincing but incorrect
+    context numbers. Top-level terminal sessions identify themselves with
+    ``source=cli``; subagent sources are structured objects and are excluded.
+    """
+    return meta.get("source") == "cli"
 
 
 def find_rollout(thread_id: str = "", cwd: str = "",
@@ -61,11 +129,12 @@ def find_rollout(thread_id: str = "", cwd: str = "",
         if path.is_file():
             return path
 
-    root = codex_home() / "sessions"
-    if not root.is_dir():
+    roots = list(_rollout_roots())
+    if not roots:
         return None
     if thread_id:
-        matches = list(root.rglob(f"*{thread_id}*.jsonl"))
+        matches = [path for root in roots
+                   for path in root.rglob(f"*{thread_id}*.jsonl")]
         if matches:
             return max(matches, key=lambda p: p.stat().st_mtime)
 
@@ -73,26 +142,24 @@ def find_rollout(thread_id: str = "", cwd: str = "",
         wanted = str(Path(cwd or os.getcwd()).expanduser().resolve())
     except (OSError, RuntimeError):
         wanted = cwd or os.getcwd()
-    # Session paths are YYYY/MM/DD. Walk newest date directories first and
-    # stop at the first cwd match instead of stat+sorting every historical
-    # rollout on each short-lived status command.
-    try:
-        years = sorted((p for p in root.iterdir() if p.is_dir()), reverse=True)
-        for year in years:
-            for month in sorted((p for p in year.iterdir() if p.is_dir()), reverse=True):
-                for day in sorted((p for p in month.iterdir() if p.is_dir()), reverse=True):
-                    files = sorted(day.glob("rollout-*.jsonl"),
-                                   key=lambda p: p.stat().st_mtime, reverse=True)
-                    for path in files:
-                        try:
-                            recorded = _meta(path).get("cwd")
-                            if (recorded and
-                                    str(Path(recorded).expanduser().resolve()) == wanted):
-                                return path
-                        except (OSError, RuntimeError):
-                            continue
-    except OSError:
-        return None
+    source = os.environ.get("CODEX_STATEBAR_SOURCE", "cli").strip().lower()
+    candidates = sorted(
+        (path for root in roots for path in _rollout_files(root, recent_only=True)),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    for path in candidates:
+        try:
+            meta = _routing_meta(path)
+            recorded = meta.get("cwd")
+            source_ok = source == "any" or (
+                source == "desktop" and meta.get("originator") == "Codex Desktop"
+            ) or (source == "cli" and _is_cli_session(meta))
+            if (source_ok and recorded and
+                    str(Path(recorded).expanduser().resolve()) == wanted):
+                return path
+        except (OSError, RuntimeError):
+            continue
     # Never leak another project's session into this bar. A cwd miss is an
     # honest "no live rollout", not permission to use the newest global one.
     return None
@@ -166,7 +233,8 @@ def _rate_limit_fields(rate_limits: dict) -> Dict[str, Any]:
 def collect_status(data: Optional[dict] = None) -> Dict[str, Any]:
     data = data if isinstance(data, dict) else {}
     out = _external_payload(data)
-    thread_id = str(out.get("session_id") or "")
+    thread_id = str(out.get("session_id") or
+                    os.environ.get("CODEX_STATEBAR_THREAD_ID") or "")
     cwd = str(out.get("workspace_current_dir") or data.get("cwd") or os.getcwd())
     explicit = str(data.get("rollout_path") or data.get("transcript_path") or "")
     path = find_rollout(thread_id, cwd, explicit)
@@ -183,6 +251,8 @@ def collect_status(data: Optional[dict] = None) -> Dict[str, Any]:
         "workspace_project_dir": meta.get("cwd") or cwd,
         "codex_version": meta.get("cli_version"),
     }
+    out["session_source"] = meta.get("source")
+    out["session_originator"] = meta.get("originator")
     for key, value in defaults.items():
         if not out.get(key) and value is not None:
             out[key] = value
@@ -218,11 +288,24 @@ def collect_status(data: Optional[dict] = None) -> Dict[str, Any]:
         if isinstance(info, dict):
             usage = info.get("last_token_usage")
             if isinstance(usage, dict):
-                used = usage.get("total_tokens") or 0
+                # Codex reports cached_input_tokens as a subset of
+                # input_tokens. Cached tokens are discounted for billing but
+                # still occupy the model context, so keep them in the context
+                # numerator and expose the billable subset separately.
+                try:
+                    cached = max(0, int(usage.get("cached_input_tokens") or 0))
+                    total = max(0, int(usage.get("total_tokens") or 0))
+                    input_tokens = max(0, int(usage.get("input_tokens") or 0))
+                    output_tokens = max(0, int(usage.get("output_tokens") or 0))
+                except (TypeError, ValueError):
+                    cached = total = input_tokens = output_tokens = 0
+                used = total
                 window = info.get("model_context_window") or meta.get("context_window") or 0
                 out["context_window_size"] = window
-                out["total_input_tokens"] = usage.get("input_tokens") or 0
-                out["total_output_tokens"] = usage.get("output_tokens") or 0
+                out["cached_input_tokens"] = cached
+                out["billable_input_tokens"] = max(0, input_tokens - cached)
+                out["total_input_tokens"] = input_tokens
+                out["total_output_tokens"] = output_tokens
                 if window:
                     pct = min(100.0, max(0.0, float(used) / float(window) * 100.0))
                     out["context_used_pct"] = pct

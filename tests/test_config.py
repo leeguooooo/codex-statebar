@@ -17,6 +17,50 @@ def test_load_returns_defaults_when_missing(tmp_path: Path):
     assert cfg.show_language is True
 
 
+def test_default_load_inherits_existing_claude_design(tmp_path: Path, monkeypatch):
+    codex_path = tmp_path / ".codex/codex-statebar.json"
+    claude_path = tmp_path / ".claude/claude-statusbar.json"
+    claude_path.parent.mkdir(parents=True)
+    claude_path.write_text(json.dumps({
+        "style": "capsule",
+        "theme": "nord",
+        "show_mode": False,
+        "bar_shimmer": True,
+        "color_ok": "#4ec85b",
+    }), encoding="utf-8")
+    monkeypatch.setattr(cfg_mod, "CONFIG_PATH", codex_path)
+    monkeypatch.setattr(cfg_mod, "CLAUDE_CONFIG_PATH", claude_path)
+
+    cfg = cfg_mod.load_config()
+
+    assert cfg.style == "capsule"
+    assert cfg.theme == "nord"
+    assert cfg.show_mode is False
+    assert cfg.bar_shimmer is True
+    assert cfg.color_ok == "#4ec85b"
+    assert cfg_mod.effective_config_path() == claude_path
+
+
+def test_first_codex_override_preserves_inherited_claude_design(tmp_path: Path,
+                                                               monkeypatch):
+    codex_path = tmp_path / ".codex/codex-statebar.json"
+    claude_path = tmp_path / ".claude/claude-statusbar.json"
+    claude_path.parent.mkdir(parents=True)
+    claude_path.write_text(json.dumps({
+        "style": "capsule", "theme": "nord", "show_mode": False,
+    }), encoding="utf-8")
+    monkeypatch.setattr(cfg_mod, "CONFIG_PATH", codex_path)
+    monkeypatch.setattr(cfg_mod, "CLAUDE_CONFIG_PATH", claude_path)
+
+    cfg_mod.set_value("density", "compact")
+
+    saved = cfg_mod.load_config(codex_path)
+    assert saved.style == "capsule"
+    assert saved.theme == "nord"
+    assert saved.show_mode is False
+    assert saved.density == "compact"
+
+
 def test_load_returns_defaults_for_garbage(tmp_path: Path):
     p = tmp_path / "broken.json"
     p.write_text("not json", encoding="utf-8")

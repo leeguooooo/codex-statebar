@@ -8,6 +8,7 @@ def _write_rollout(path: Path, cwd: str) -> None:
     events = [
         {"type": "session_meta", "payload": {
             "id": "thread-1", "cwd": cwd, "cli_version": "0.144.1",
+            "source": "cli", "originator": "codex-tui",
         }},
         {"type": "turn_context", "payload": {
             "model": "gpt-5.6", "effort": "high",
@@ -18,7 +19,8 @@ def _write_rollout(path: Path, cwd: str) -> None:
             "info": {
                 "model_context_window": 200000,
                 "last_token_usage": {
-                    "input_tokens": 49000, "output_tokens": 1000,
+                    "input_tokens": 49000, "cached_input_tokens": 10000,
+                    "output_tokens": 1000,
                     "total_tokens": 50000,
                 },
             },
@@ -45,6 +47,9 @@ def test_collects_codex_context_limits_and_model(tmp_path, monkeypatch):
     assert status["model_id"] == "gpt-5.6"
     assert status["effort_level"] == "high"
     assert status["context_used_pct"] == 25.0
+    assert status["total_input_tokens"] == 49000
+    assert status["billable_input_tokens"] == 39000
+    assert status["cached_input_tokens"] == 10000
     assert status["rate_limit_pct"] == 12.0
     assert status["rate_limit_7d_pct"] == 34.0
     assert status["plan_type"] == "pro"
@@ -56,6 +61,29 @@ def test_finds_newest_rollout_for_cwd(tmp_path, monkeypatch):
     _write_rollout(path, str(tmp_path))
     monkeypatch.setenv("CODEX_HOME", str(home))
     assert rollout.find_rollout(cwd=str(tmp_path)) == path
+
+
+def test_does_not_confuse_desktop_rollout_with_terminal(tmp_path, monkeypatch):
+    home = tmp_path / ".codex"
+    path = home / "sessions/2026/07/13/rollout-desktop.jsonl"
+    _write_rollout(path, str(tmp_path))
+    events = [json.loads(line) for line in path.read_text().splitlines()]
+    events[0]["payload"].update(source="vscode", originator="Codex Desktop")
+    path.write_text("\n".join(json.dumps(item) for item in events) + "\n")
+    monkeypatch.setenv("CODEX_HOME", str(home))
+
+    assert rollout.find_rollout(cwd=str(tmp_path)) is None
+    monkeypatch.setenv("CODEX_STATEBAR_SOURCE", "desktop")
+    assert rollout.find_rollout(cwd=str(tmp_path)) == path
+
+
+def test_finds_exact_thread_in_archived_sessions(tmp_path, monkeypatch):
+    home = tmp_path / ".codex"
+    path = home / "archived_sessions/rollout-thread-1.jsonl"
+    _write_rollout(path, str(tmp_path))
+    monkeypatch.setenv("CODEX_HOME", str(home))
+
+    assert rollout.find_rollout(thread_id="thread-1") == path
 
 
 def test_external_payload_works_without_local_rollout(tmp_path, monkeypatch):

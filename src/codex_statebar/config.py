@@ -3,8 +3,9 @@
 Resolution order for any field:
     1. CLI flag        (e.g. --style capsule)
     2. Env var         (e.g. CODEX_STATEBAR_STYLE)
-    3. Config file     (~/.codex/codex-statebar.json)
-    4. Built-in default
+    3. Codex config    (~/.codex/codex-statebar.json)
+    4. Claude config   (~/.claude/claude-statusbar.json, shared-design fallback)
+    5. Built-in default
 """
 
 import json
@@ -14,6 +15,9 @@ from pathlib import Path
 from typing import Any, Optional
 
 CONFIG_PATH = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")) / "codex-statebar.json"
+CLAUDE_CONFIG_PATH = Path(
+    os.environ.get("CLAUDE_CONFIG_DIR", Path.home() / ".claude")
+) / "claude-statusbar.json"
 
 DEFAULT_STYLE = "classic"     # keep existing behavior for upgraders
 DEFAULT_THEME = "graphite"
@@ -114,8 +118,19 @@ def _to_bool(v):
     return s in ("1", "true", "yes", "on", "y", "t")
 
 
+def effective_config_path(path: Optional[Path] = None) -> Path:
+    """Return the file currently supplying the visual configuration."""
+    if path is not None:
+        return path
+    if CONFIG_PATH.exists():
+        return CONFIG_PATH
+    if CLAUDE_CONFIG_PATH.exists():
+        return CLAUDE_CONFIG_PATH
+    return CONFIG_PATH
+
+
 def load_config(path: Optional[Path] = None) -> StatusbarConfig:
-    path = CONFIG_PATH if path is None else path
+    path = effective_config_path(path)
     if not path.exists():
         return StatusbarConfig()
     try:
@@ -205,10 +220,13 @@ _VALID_CWD_STYLE = {"basename", "full"}
 
 
 def set_value(key: str, value: str, path: Optional[Path] = None) -> StatusbarConfig:
+    explicit_path = path
     path = CONFIG_PATH if path is None else path
     if key not in VALID_KEYS:
         raise KeyError(f"unknown config key: {key} (valid: {sorted(VALID_KEYS)})")
-    cfg = load_config(path)
+    # The first Codex-specific override starts from the user's established
+    # Claude design instead of resetting every unrelated visual option.
+    cfg = load_config() if explicit_path is None and not path.exists() else load_config(path)
     if key in _FLOAT_KEYS:
         try:
             new_val = float(value)
@@ -286,7 +304,6 @@ def set_value(key: str, value: str, path: Optional[Path] = None) -> StatusbarCon
 
 
 def get_value(key: str, path: Optional[Path] = None) -> Any:
-    path = CONFIG_PATH if path is None else path
     if key not in VALID_KEYS:
         raise KeyError(f"unknown config key: {key}")
     return getattr(load_config(path), key)

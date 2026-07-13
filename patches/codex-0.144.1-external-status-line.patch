@@ -1,0 +1,330 @@
+# Codex CLI 0.144.1: external command status line
+# Apply from the root of the openai/codex source tree.
+# Configuration: [tui] status_line = ["command", "cxs", "render"]
+
+--- a/codex-rs/tui/src/lib.rs
++++ b/codex-rs/tui/src/lib.rs
+@@ -134,6 +134,7 @@
+ mod line_truncation;
+ pub(crate) mod live_wrap;
+ pub use live_wrap::RowBuilder;
++mod external_status_line;
+ mod local_chatgpt_auth;
+ mod managed_new_thread_defaults;
+ mod markdown;
+--- a/codex-rs/tui/src/app_event.rs
++++ b/codex-rs/tui/src/app_event.rs
+@@ -147,6 +147,11 @@
+ #[allow(clippy::large_enum_variant)]
+ #[derive(Debug)]
+ pub(crate) enum AppEvent {
++    /// Result from a configured external status-line command.
++    ExternalStatusLineUpdated {
++        thread_id: Option<ThreadId>,
++        line: String,
++    },
+     /// Open the agent picker for switching active threads.
+     OpenAgentPicker,
+     /// Switch the active thread to the selected agent.
+--- a/codex-rs/tui/src/app/event_dispatch.rs
++++ b/codex-rs/tui/src/app/event_dispatch.rs
+@@ -20,6 +20,14 @@
+         event: AppEvent,
+     ) -> Result<AppRunControl> {
+         match event {
++            AppEvent::ExternalStatusLineUpdated { thread_id, line } => {
++                if self.chat_widget.thread_id() == thread_id
++                    && self.chat_widget.external_status_line_command().is_some()
++                {
++                    self.chat_widget
++                        .set_status_line(Some(ansi_escape_line(&line)));
++                }
++            }
+             AppEvent::NewSession => {
+                 self.start_fresh_session_with_summary_hint(
+                     tui, app_server, /*session_start_source*/ None,
+--- a/codex-rs/tui/src/chatwidget.rs
++++ b/codex-rs/tui/src/chatwidget.rs
+@@ -689,6 +689,8 @@
+     current_rollout_path: Option<PathBuf>,
+     // Current working directory (if known)
+     current_cwd: Option<PathBuf>,
++    // Async runner for `[tui].status_line = ["command", ...]`.
++    external_status_line_runner: crate::external_status_line::ExternalStatusLineRunner,
+     // App-server-backed command runner for status-line workspace metadata lookups.
+     workspace_command_runner: Option<WorkspaceCommandRunner>,
+     // Instruction source files loaded for the current session, supplied by app-server.
+--- a/codex-rs/tui/src/chatwidget/constructor.rs
++++ b/codex-rs/tui/src/chatwidget/constructor.rs
+@@ -97,7 +97,7 @@
+             codex_op_target,
+             bottom_pane: BottomPane::new(BottomPaneParams {
+                 frame_requester,
+-                app_event_tx,
++                app_event_tx: app_event_tx.clone(),
+                 has_input_focus: true,
+                 enhanced_keys_supported,
+                 placeholder_text: placeholder.clone(),
+@@ -213,6 +213,9 @@
+             feedback,
+             current_rollout_path: None,
+             current_cwd,
++            external_status_line_runner: crate::external_status_line::ExternalStatusLineRunner::new(
++                app_event_tx.clone(),
++            ),
+             workspace_command_runner,
+             instruction_source_paths: Vec::new(),
+             session_network_proxy: None,
+--- a/codex-rs/tui/src/chatwidget/status_surfaces.rs
++++ b/codex-rs/tui/src/chatwidget/status_surfaces.rs
+@@ -175,6 +175,16 @@
+     }
+
+     fn refresh_status_line_from_selections(&mut self, selections: &StatusSurfaceSelections) {
++        if let Some(command) = self.external_status_line_command() {
++            self.bottom_pane.set_status_line_enabled(true);
++            self.set_status_line_hyperlink(/*url*/ None);
++            let payload = self.external_status_line_payload();
++            let cwd = self.status_line_cwd().to_path_buf();
++            self.external_status_line_runner
++                .request(command, payload, cwd, self.thread_id);
++            return;
++        }
++
+         let enabled = !selections.status_line_items.is_empty();
+         self.bottom_pane.set_status_line_enabled(enabled);
+         if !enabled {
+@@ -405,6 +415,9 @@
+     }
+
+     pub(super) fn configured_status_line_items(&self) -> Vec<String> {
++        if self.external_status_line_command().is_some() {
++            return Vec::new();
++        }
+         self.config.tui_status_line.clone().unwrap_or_else(|| {
+             DEFAULT_STATUS_LINE_ITEMS
+                 .iter()
+@@ -413,6 +426,56 @@
+         })
+     }
+
++    /// Returns the argv configured through
++    /// `[tui].status_line = ["command", "program", "arg", ...]`.
++    pub(crate) fn external_status_line_command(&self) -> Option<Vec<String>> {
++        let items = self.config.tui_status_line.as_ref()?;
++        (items.first().map(String::as_str) == Some("command") && items.len() > 1)
++            .then(|| items[1..].to_vec())
++    }
++
++    fn external_status_line_payload(&self) -> String {
++        let cwd = self.status_line_cwd();
++        let context_window_size = self.status_line_context_window_size();
++        let remaining_percentage = self.status_line_context_remaining_percent();
++        let used_percentage = remaining_percentage.map(|remaining| 100 - remaining);
++        let usage = self
++            .token_info
++            .as_ref()
++            .map(|info| info.total_token_usage.clone())
++            .unwrap_or_default();
++
++        serde_json::json!({
++            "session_id": self.thread_id.map(|id| id.to_string()),
++            "transcript_path": self.current_rollout_path.as_ref().map(|path| path.to_string_lossy()),
++            "cwd": cwd,
++            "workspace": {
++                "project_dir": cwd,
++                "current_dir": cwd,
++            },
++            "model": {
++                "id": self.current_model(),
++                "display_name": self.model_display_name(),
++                "reasoning_level": self.effective_reasoning_effort(),
++            },
++            "version": CODEX_CLI_VERSION,
++            "context_window": {
++                "total_input_tokens": usage.input_tokens,
++                "total_output_tokens": usage.output_tokens,
++                "context_window_size": context_window_size,
++                "used_percentage": used_percentage,
++                "remaining_percentage": remaining_percentage,
++                "current_usage": {
++                    "input_tokens": usage.input_tokens,
++                    "output_tokens": usage.output_tokens,
++                    "cache_read_input_tokens": usage.cached_input_tokens,
++                    "reasoning_output_tokens": usage.reasoning_output_tokens,
++                }
++            }
++        })
++        .to_string()
++    }
++
+     /// Parses configured terminal-title ids into known items and collects unknown ids.
+     ///
+     /// Unknown ids are deduplicated in insertion order for warning messages.
+--- /dev/null
++++ b/codex-rs/tui/src/external_status_line.rs
+@@ -0,0 +1,164 @@
++//! Async external-command backend for the footer status line.
++
++use std::path::PathBuf;
++use std::process::Stdio;
++use std::sync::{Arc, Mutex};
++use std::time::Duration;
++
++use codex_protocol::ThreadId;
++use tokio::io::AsyncWriteExt;
++
++use crate::app_event::AppEvent;
++use crate::app_event_sender::AppEventSender;
++
++// Python startup and the first cache fill can be slow on macOS. Execution is
++// fully asynchronous, so allow the cold render to complete; subsequent daemon
++// backed renders are normally near-instant.
++const STATUS_LINE_TIMEOUT: Duration = Duration::from_secs(15);
++
++#[derive(Debug, Default)]
++struct RunnerState {
++    in_flight: bool,
++    pending: bool,
++    latest: Option<Request>,
++}
++
++#[derive(Clone, Debug)]
++struct Request {
++    command: Vec<String>,
++    payload: String,
++    cwd: PathBuf,
++    thread_id: Option<ThreadId>,
++}
++
++#[derive(Clone, Debug)]
++pub(crate) struct ExternalStatusLineRunner {
++    state: Arc<Mutex<RunnerState>>,
++    app_event_tx: AppEventSender,
++}
++
++impl ExternalStatusLineRunner {
++    pub(crate) fn new(app_event_tx: AppEventSender) -> Self {
++        Self {
++            state: Arc::new(Mutex::new(RunnerState::default())),
++            app_event_tx,
++        }
++    }
++
++    /// Coalesces bursts: one process at a time, followed by at most one rerun
++    /// using the newest payload received while it was running.
++    pub(crate) fn request(
++        &self,
++        command: Vec<String>,
++        payload: String,
++        cwd: PathBuf,
++        thread_id: Option<ThreadId>,
++    ) {
++        let request = Request {
++            command,
++            payload,
++            cwd,
++            thread_id,
++        };
++        {
++            let mut state = self
++                .state
++                .lock()
++                .expect("external status line lock poisoned");
++            state.latest = Some(request);
++            if state.in_flight {
++                state.pending = true;
++                return;
++            }
++            state.in_flight = true;
++        }
++
++        let state = Arc::clone(&self.state);
++        let app_event_tx = self.app_event_tx.clone();
++        tokio::spawn(async move {
++            loop {
++                let request = {
++                    state
++                        .lock()
++                        .expect("external status line lock poisoned")
++                        .latest
++                        .clone()
++                };
++                let Some(request) = request else { break };
++
++                if let Ok(line) = run_request(&request).await {
++                    app_event_tx.send(AppEvent::ExternalStatusLineUpdated {
++                        thread_id: request.thread_id,
++                        line,
++                    });
++                }
++
++                let mut guard = state.lock().expect("external status line lock poisoned");
++                if guard.pending {
++                    guard.pending = false;
++                    continue;
++                }
++                guard.in_flight = false;
++                break;
++            }
++        });
++    }
++}
++
++async fn run_request(request: &Request) -> Result<String, String> {
++    let Some(program) = request.command.first() else {
++        return Err("external status line command is empty".to_string());
++    };
++    let mut command = tokio::process::Command::new(program);
++    command
++        .args(&request.command[1..])
++        .current_dir(&request.cwd)
++        .env("CODEX_STATUS_LINE", "1")
++        .kill_on_drop(true)
++        .stdin(Stdio::piped())
++        .stdout(Stdio::piped())
++        .stderr(Stdio::piped());
++
++    let mut child = command
++        .spawn()
++        .map_err(|error| format!("failed to spawn external status line: {error}"))?;
++    if let Some(mut stdin) = child.stdin.take() {
++        stdin
++            .write_all(request.payload.as_bytes())
++            .await
++            .map_err(|error| format!("failed to write external status line payload: {error}"))?;
++    }
++    let output = tokio::time::timeout(STATUS_LINE_TIMEOUT, child.wait_with_output())
++        .await
++        .map_err(|_| "external status line command timed out".to_string())?
++        .map_err(|error| format!("failed to read external status line output: {error}"))?;
++    if !output.status.success() {
++        return Err(format!(
++            "external status line command failed: {}",
++            String::from_utf8_lossy(&output.stderr).trim()
++        ));
++    }
++    Ok(String::from_utf8_lossy(&output.stdout)
++        .lines()
++        .next()
++        .unwrap_or_default()
++        .trim_end()
++        .to_string())
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[cfg(unix)]
++    #[tokio::test]
++    async fn command_receives_json_and_only_first_stdout_line_is_used() {
++        let request = Request {
++            command: vec!["/bin/sh".into(), "-c".into(), "cat".into()],
++            payload: "first\nsecond\n".into(),
++            cwd: std::env::current_dir().expect("cwd"),
++            thread_id: None,
++        };
++        assert_eq!(run_request(&request).await, Ok("first".into()));
++    }
++}

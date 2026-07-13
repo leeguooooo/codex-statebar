@@ -9,8 +9,9 @@ def test_setup_creates_tui_section_and_preserves_root_keys(tmp_path):
     assert changed is True
     assert 'model = "gpt-5.6"' in text
     assert "[tui]" in text
-    assert '"weekly-limit"' in text
     assert "status_line_use_colors = true" in text
+    assert 'status_line = ["command",' in text
+    assert '"render"]' in text
 
 
 def test_setup_updates_only_managed_tui_keys(tmp_path):

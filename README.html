@@ -34,7 +34,8 @@
     <pre>5h[░░░--%░░░░]⏰-- | 7d[█░░░7%░░░░]⏰6d21h →91% | gpt-5.6(178.7k/353.4k)
 ⤷ codex-statebar ⎇ main●
 ⚙ effort:high</pre>
-    <p>数据直接来自本地 <code>$CODEX_HOME/sessions/**/rollout-*.jsonl</code>；不会读取 <code>auth.json</code>，不会上传 session 内容。</p>
+    <p>数据直接来自本地 <code>$CODEX_HOME/sessions</code> 与 <code>$CODEX_HOME/archived_sessions</code>；不会读取 <code>auth.json</code>，不会上传 session 内容。独立运行时默认只选择当前目录的顶层 Codex CLI 会话，不会混入同目录的 Codex Desktop / VS Code 会话。</p>
+    <p>视觉配置优先读取 <code>~/.codex/codex-statebar.json</code>；若没有 Codex 专属覆盖，则继承现有 <code>~/.claude/claude-statusbar.json</code>，使 <code>cs</code> 与 <code>cxs</code> 默认保持同一套样式、主题、颜色和密度。</p>
   </section>
 
   <section>
@@ -55,16 +56,23 @@ cxs doctor</pre>
         <tr><td>主题 / 样式预览</td><td><code>cxs preview</code></td></tr>
         <tr><td>切换主题</td><td><code>cxs config set theme nord</code></td></tr>
         <tr><td>切换样式</td><td><code>cxs config set style capsule</code></td></tr>
-        <tr><td>配置 Codex 原生降级栏</td><td><code>cxs --setup</code></td></tr>
+        <tr><td>配置嵌入式富状态栏</td><td><code>cxs --setup</code></td></tr>
         <tr><td>JSON 输出</td><td><code>cxs --json-output</code></td></tr>
+        <tr><td>精确选择会话</td><td><code>cxs --session &lt;thread-id&gt;</code></td></tr>
       </tbody>
     </table>
   </section>
 
   <section>
-    <h2>Codex TUI 接入边界</h2>
-    <aside>稳定版 Codex 支持 <code>[tui].status_line</code> 内置字段列表，但目前没有 Claude Code 那种“执行外部命令并渲染 stdout”的扩展点。因此 <code>cxs --setup</code> 只配置原生降级字段，不会伪装成富状态栏已嵌入。</aside>
-    <p>完整富渲染当前可用于直接命令、<code>watch</code>、tmux / shell prompt，以及提供外部状态命令 hook 的 Codex 补丁版或未来版本。相关上游请求见 <a href="https://github.com/openai/codex/issues/17827">openai/codex#17827</a>。</p>
+    <h2>嵌入 Codex TUI</h2>
+    <aside>Codex 0.144.1 稳定版还不能执行外部状态栏命令。本项目提供一个小型 Rust TUI 补丁，让 <code>cxs render</code> 的 ANSI 输出直接出现在输入框下方；Python 继续负责成熟的主题与指标计算。</aside>
+    <p>先构建补丁版 Codex，再写入 command 模式配置：</p>
+    <pre>./scripts/build-patched-codex.sh
+cxs --setup
+./dist/codex-cxs</pre>
+    <p><code>cxs --setup</code> 会写入 <code>[tui].status_line = ["command", "…/cxs", "render"]</code>。原生字段模式仍可用；只有首项为 <code>command</code> 时才调用外部渲染器。补丁包含异步执行、更新合并、超时保护、会话隔离与 ANSI 色彩解析。</p>
+    <p>上游仍在讨论正式扩展点：<a href="https://github.com/openai/codex/issues/17827">openai/codex#17827</a>。在官方支持落地前，构建脚本固定使用 <code>rust-v0.144.1</code>，避免补丁静默套到不兼容版本。</p>
+    <p>新建 Codex CLI 后，需要至少发送一条消息，Codex 才会创建可读取的 rollout。若尚未发送消息，<code>cxs</code> 会提示先完成首轮交互；它不会改用同目录的 Desktop 会话。</p>
   </section>
 
   <section>
@@ -72,7 +80,9 @@ cxs doctor</pre>
     <pre>python -m pip install -e . pytest
 python -m pytest -q
 python -m compileall -q src
-cxs --no-color</pre>
+cxs --no-color
+patch --dry-run -d /path/to/codex -p1 &lt; patches/codex-0.144.1-external-status-line.patch
+cargo check -p codex-tui</pre>
   </section>
 </main></body>
 </html>

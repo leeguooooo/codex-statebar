@@ -1,15 +1,9 @@
-"""Codex CLI setup helpers.
-
-Stable Codex currently accepts a list of built-in status-line item IDs, but it
-does not yet execute an external renderer.  Setup therefore enables the best
-native fallback without pretending the rich renderer is embedded.  ``cxs``
-itself remains usable in tmux, shell prompts, watch mode, and patched/future
-Codex builds that provide the command hook.
-"""
+"""Codex CLI setup helpers for the patched command-status-line build."""
 
 from __future__ import annotations
 
 import os
+import json
 import re
 import shutil
 from pathlib import Path
@@ -41,7 +35,11 @@ def _resolve_cs_command() -> str:
 
 def _statusline_config(fast: bool = False, refresh_interval: int = 1) -> dict:
     """Compatibility descriptor used by diagnostics and older callers."""
-    return {"items": list(NATIVE_ITEMS), "colors": True, "external": False}
+    return {
+        "items": ["command", _resolve_cs_command(), "render"],
+        "colors": True,
+        "external": True,
+    }
 
 
 def _is_our_statusline(entry: object) -> bool:
@@ -49,16 +47,30 @@ def _is_our_statusline(entry: object) -> bool:
         command = str(entry.get("command") or "").split()
         return bool(command and Path(command[0]).name in OUR_COMMAND_NAMES)
     if isinstance(entry, (list, tuple)):
-        return tuple(entry) == NATIVE_ITEMS
+        return (
+            len(entry) >= 2
+            and entry[0] == "command"
+            and Path(str(entry[1])).name in OUR_COMMAND_NAMES
+        ) or tuple(entry) == NATIVE_ITEMS
     return False
 
 
 def _existing_uses_render(existing: object) -> bool:
-    return False
+    return (
+        isinstance(existing, (list, tuple))
+        and len(existing) >= 3
+        and entry_is_our_command(existing[1])
+        and existing[2] == "render"
+    )
+
+
+def entry_is_our_command(value: object) -> bool:
+    return Path(str(value)).name in OUR_COMMAND_NAMES
 
 
 def _array_literal() -> str:
-    return "[" + ", ".join(f'\"{item}\"' for item in NATIVE_ITEMS) + "]"
+    items = ("command", _resolve_cs_command(), "render")
+    return "[" + ", ".join(json.dumps(item) for item in items) + "]"
 
 
 def _upsert_tui(text: str) -> str:
@@ -104,14 +116,14 @@ def _configure(path: Path) -> Tuple[bool, str]:
         return False, f"Could not read {path}: {exc}"
     updated = _upsert_tui(original)
     if updated == original:
-        return False, f"Codex native status line already configured in {path}"
+        return False, f"Codex command status line already configured in {path}"
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
         return False, f"Could not create {path.parent}: {exc}"
     if not atomic_write_text(path, updated):
         return False, f"Could not write {path}"
-    return True, f"Configured Codex native status line in {path}"
+    return True, f"Configured Codex command status line in {path}"
 
 
 def is_statusline_configured() -> bool:
@@ -119,7 +131,11 @@ def is_statusline_configured() -> bool:
         text = SETTINGS_PATH.read_text(encoding="utf-8")
     except OSError:
         return False
-    return _MARKER in text and all(f'\"{item}\"' in text for item in NATIVE_ITEMS)
+    return (
+        _MARKER in text
+        and 'status_line = ["command",' in text
+        and '"render"]' in text
+    )
 
 
 def ensure_statusline_configured(fast: Optional[bool] = None) -> Tuple[bool, str]:
@@ -172,10 +188,10 @@ def run_setup(verbose: bool = True, install_cmds: bool = True,
     ok = changed or "already configured" in message
     if verbose:
         print(f"{'✓' if ok else '!'} {message}")
-        print("  Stable Codex supports built-in items only; rich cxs themes and")
-        print("  multi-line rendering are available via `cxs`, tmux, or `cxs watch`.")
+        print("  Requires the codex-statebar patched Codex binary.")
+        print("  The rich cxs renderer is embedded below the composer.")
         if changed:
-            print("  Restart Codex CLI to load the native status-line configuration.")
+            print("  Restart Codex CLI to load the command status-line configuration.")
     if install_cmds:
         installed, _ = install_skills()
         if verbose and installed:

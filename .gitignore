@@ -34,6 +34,7 @@ codex-statebar.json
 # Build artifacts
 build/
 dist/
+.upstream/
 *.egg-info/
 src/*.egg-info/
 .eggs/

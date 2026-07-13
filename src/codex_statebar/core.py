@@ -1547,12 +1547,18 @@ def main(json_output: bool = False,
                 if json_output:
                     print(json.dumps({
                         "success": False,
-                        "error": "No matching Codex rollout or external status payload.",
+                        "error": (
+                            "No Codex CLI rollout for this cwd. Start Codex here "
+                            "and send one prompt so it creates the session record."
+                        ),
                         "meta": {"model": model_id, "display_name": display_name,
                                  "bypass": bypass},
                     }))
                 else:
-                    print(f"⚠ No matching Codex rollout for this cwd | {model}")
+                    print(
+                        "⚠ No Codex CLI rollout for this cwd. "
+                        "Start `codex` here and send one prompt first."
+                    )
 
     except Exception as e:
         reset_time = calculate_reset_time(reset_hour=reset_hour).replace(" ", "")
