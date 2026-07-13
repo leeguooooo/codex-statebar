@@ -1,0 +1,335 @@
+# tests/test_predict.py
+from codex_statebar.predict import (
+    format_eta, project_window, forecast_chip, forecast, reconcile_account,
+    WINDOW_LEN_S, MIN_ELAPSED_S, DEBUG_PLACEHOLDER,
+)
+
+W5 = WINDOW_LEN_S["five_hour"]    # 18000
+W7 = WINDOW_LEN_S["seven_day"]    # 604800
+
+
+# --- format_eta ---
+def test_format_eta_seconds():
+    assert format_eta(30) == "~30s"
+
+def test_format_eta_minutes_floor():
+    assert format_eta(40 * 60) == "~40m"
+    assert format_eta(8 * 60 + 59) == "~8m"
+
+def test_format_eta_hours():
+    assert format_eta(2 * 3600 + 10 * 60) == "~2h10m"
+
+
+# --- project_window: average pace over the elapsed window ---
+def test_project_window_basic():
+    pf, ttl = project_window(90.0, time_to_reset=3600, window_len=W5)
+    assert abs(pf - 112.5) < 1e-6
+    assert abs(ttl - 1600.0) < 1e-6
+
+def test_project_window_safe_pace():
+    pf, ttl = project_window(8.0, time_to_reset=11580, window_len=W5)
+    assert 22 <= pf <= 23
+    assert ttl > 11580
+
+def test_project_window_before_window_start_is_none():
+    assert project_window(10.0, time_to_reset=W5 + 100, window_len=W5) is None
+
+def test_project_window_no_usage_or_capped_is_none():
+    assert project_window(0.0, time_to_reset=3600, window_len=W5) is None
+    assert project_window(100.0, time_to_reset=3600, window_len=W5) is None
+    assert project_window(5.0, time_to_reset=0, window_len=W5) is None
+
+def test_project_window_bad_input_is_none():
+    assert project_window("x", time_to_reset=3600, window_len=W5) is None
+    assert project_window(None, time_to_reset=3600, window_len=W5) is None
+
+
+# --- forecast_chip: ETA-only (show_forecast on) ---
+def test_forecast_chip_safe_returns_none():
+    now = 1000.0
+    assert forecast_chip("five_hour", 8.0, resets_at=now + 11580, now=now) is None
+
+def test_forecast_chip_at_risk_shows_eta():
+    now = 1000.0
+    # 90% with 1h left → projected 112.5% ≥ 100 → ETA ~26m.
+    assert forecast_chip("five_hour", 90.0, resets_at=now + 3600, now=now) == "~26m"
+
+def test_forecast_chip_too_early_is_placeholder():
+    now = 1000.0
+    ttr = W5 - 300   # only 5 min elapsed (< MIN_ELAPSED 10m)
+    assert forecast_chip("five_hour", 5.0, resets_at=now + ttr, now=now) is None
+
+def test_forecast_chip_missing_resets_at_is_placeholder():
+    assert forecast_chip("five_hour", 90.0, resets_at=None, now=1000.0) is None
+
+def test_forecast_chip_unknown_window_is_placeholder():
+    assert forecast_chip("bogus", 90.0, resets_at=1e12, now=1000.0) is None
+
+def test_forecast_chip_seven_day_uses_week_length():
+    now = 1000.0
+    assert forecast_chip("seven_day", 8.0, resets_at=now + 536400, now=now) is None
+    # Heavy 7d pace (90%, 1 day left → projected ~105%, but the cap is ~16h away)
+    # → not imminent enough for a warning chip.
+    assert forecast_chip("seven_day", 90.0, resets_at=now + 86400, now=now) is None
+
+def test_forecast_chip_eta_only_when_imminent():
+    now = 1000.0
+    # 5h projected ~108% but the cap is ~3.2h away (ttl > 1h) → no ETA yet.
+    assert forecast_chip("five_hour", 30.0, resets_at=now + 13000, now=now) is None
+    # 5h projected 112% with the cap ~26 min away (ttl ≤ 1h) → the countdown.
+    assert forecast_chip("five_hour", 90.0, resets_at=now + 3600, now=now) == "~26m"
+
+
+# --- forecast orchestrator (reconcile isolated to tmp by conftest autouse) ---
+def test_forecast_returns_pair():
+    now = 1000.0
+    c5, c7 = forecast(90.0, now + 3600, 8.0, now + 536400, now)
+    assert c5 == "~26m" and c7 is None
+
+def test_forecast_safe_returns_none_pair():
+    now = 1000.0
+    c5, c7 = forecast(8.0, now + 11580, 8.0, now + 536400, now)
+    assert c5 is None and c7 is None
+
+def test_forecast_never_raises_on_garbage():
+    assert forecast(None, None, None, None, now=1000.0) == (None, None)
+    c5, c7 = forecast("x", "y", object(), [], now=1000.0)
+    assert c5 is None and c7 is None
+
+
+# --- reconcile_account: all windows converge to the freshest account reading ---
+def test_reconcile_keeps_higher_used_within_window(tmp_path):
+    p = tmp_path / "latest.json"
+    reconcile_account(10.0, 5000, 8.0, 9000, path=p, now=0.0)
+    u5, r5, u7, r7 = reconcile_account(5.0, 5000, 3.0, 9000, path=p, now=0.0)
+    assert (u5, r5, u7, r7) == (10.0, 5000.0, 8.0, 9000.0)
+
+def test_reconcile_takes_higher_used_when_fresher(tmp_path):
+    p = tmp_path / "latest.json"
+    reconcile_account(10.0, 5000, 8.0, 9000, path=p, now=0.0)
+    reconcile_account(12.0, 5000, 9.0, 9000, path=p, now=0.0)
+    u5, _, _, _ = reconcile_account(11.0, 5000, 8.5, 9000, path=p, now=0.0)
+    assert u5 == 12.0
+
+def test_reconcile_new_window_resets(tmp_path):
+    p = tmp_path / "latest.json"
+    reconcile_account(90.0, 5000, 50.0, 9000, path=p, now=0.0)
+    u5, r5, _, _ = reconcile_account(3.0, 5000 + W5, 50.0, 9000, path=p, now=0.0)
+    assert u5 == 3.0 and r5 == 5000 + W5
+
+def test_reconcile_missing_file_returns_inputs(tmp_path):
+    p = tmp_path / "nope.json"
+    assert reconcile_account(7.0, 5000, 4.0, 9000, path=p, now=0.0) == (7.0, 5000.0, 4.0, 9000.0)
+
+def test_forecast_uses_reconciled_reading(tmp_path, monkeypatch):
+    import codex_statebar.predict as predict
+    monkeypatch.setattr(predict, "_LATEST_PATH", tmp_path / "latest.json")
+    now = 1000.0
+    # Active session seeds used=90 via the recording reconcile (as core.main
+    # does before calling forecast); forecast() itself is read-only now.
+    reconcile_account(90.0, now + 3600, 8.0, now + 536400, now=now)
+    # A stale window with used=5 must still see the at-risk ETA (reconciled to 90).
+    c5, _ = forecast(5.0, now + 3600, 8.0, now + 536400, now)
+    assert c5 == "~26m"
+
+
+def test_reconcile_rejects_far_future_reset(tmp_path):
+    # A bogus far-future resets_at must NOT overwrite a plausible stored reading
+    # (regression: a 1e10 value used to poison the monotonic merge forever).
+    p = tmp_path / "latest.json"
+    now = 1000.0
+    reconcile_account(10.0, now + 3000, 8.0, now + 9000, path=p, now=now)
+    u5, r5, u7, r7 = reconcile_account(99.0, now + 10**9, 99.0, now + 10**9, path=p, now=now)
+    assert (u5, r5) == (10.0, now + 3000) and (u7, r7) == (8.0, now + 9000)
+
+
+def test_reconcile_accepts_official_rebaseline_after_grace(tmp_path):
+    # Anthropic can revise used_percentage DOWN mid-window (weekly limit raised
+    # → same resets_at, lower pct; observed live 2026-06-10: seven_day 19% → 3%).
+    # Once the old high reading stops being confirmed for DOWNGRADE_GRACE_S,
+    # the lower official reading must win — not stick until window rollover.
+    from codex_statebar.predict import DOWNGRADE_GRACE_S
+    p = tmp_path / "latest.json"
+    reconcile_account(15.0, 5000, 19.0, 9000, path=p, now=0.0)
+    later = DOWNGRADE_GRACE_S + 1
+    _, _, u7, r7 = reconcile_account(15.0, 5000, 3.0, 9000, path=p, now=later)
+    assert (u7, r7) == (3.0, 9000.0)
+
+def test_reconcile_rejects_downgrade_within_grace(tmp_path):
+    # Within the grace period a lower same-reset reading is still treated as a
+    # stale session replay — the higher stored reading wins.
+    p = tmp_path / "latest.json"
+    reconcile_account(15.0, 5000, 19.0, 9000, path=p, now=0.0)
+    _, _, u7, _ = reconcile_account(15.0, 5000, 3.0, 9000, path=p, now=30.0)
+    assert u7 == 19.0
+
+def test_reconcile_confirmation_keeps_high_reading_alive(tmp_path):
+    # A session still seeing the high value re-confirms it each render, so the
+    # grace clock restarts — a stale lower replay must not take over while any
+    # live session agrees with the stored reading.
+    from codex_statebar.predict import DOWNGRADE_GRACE_S
+    p = tmp_path / "latest.json"
+    reconcile_account(15.0, 5000, 19.0, 9000, path=p, now=0.0)
+    confirm_at = DOWNGRADE_GRACE_S - 20
+    reconcile_account(15.0, 5000, 19.0, 9000, path=p, now=confirm_at)  # confirm
+    _, _, u7, _ = reconcile_account(15.0, 5000, 3.0, 9000, path=p,
+                                    now=confirm_at + DOWNGRADE_GRACE_S - 1)
+    assert u7 == 19.0
+    _, _, u7, _ = reconcile_account(15.0, 5000, 3.0, 9000, path=p,
+                                    now=confirm_at + DOWNGRADE_GRACE_S + 1)
+    assert u7 == 3.0
+
+def test_reconcile_legacy_store_without_observed_at_accepts_downgrade(tmp_path):
+    # Pre-3.13.3 stores have no observed_at — treat them as unconfirmed so a
+    # live official reading immediately replaces a stuck pre-upgrade value.
+    import json
+    p = tmp_path / "latest.json"
+    p.write_text(json.dumps({
+        "five_hour": {"used": 15.0, "resets_at": 5000.0},
+        "seven_day": {"used": 19.0, "resets_at": 9000.0},
+    }))
+    _, _, u7, r7 = reconcile_account(15.0, 5000, 3.0, 9000, path=p, now=0.0)
+    assert (u7, r7) == (3.0, 9000.0)
+
+
+def test_reconcile_stale_blob_cannot_confirm_or_upgrade(tmp_path):
+    # An idle-but-open Claude Code window replays its last rate_limits blob on
+    # every render. If that blob's five_hour resets_at is already in the past,
+    # the WHOLE blob is hours old — its seven_day reading (still future reset,
+    # pre-rebaseline pct) must neither overwrite the store nor count as a
+    # confirmation that restarts the downgrade grace clock. Observed live
+    # 2026-06-10: frozen sessions replaying 7d=15% kept the bar from healing
+    # to the official 3%.
+    from codex_statebar.predict import DOWNGRADE_GRACE_S
+    p = tmp_path / "latest.json"
+    now = 100000.0
+    r5_fresh, r7 = now + 3000, now + 500000
+    reconcile_account(17.0, r5_fresh, 3.0, r7, path=p, now=now)
+    # Stale blob: expired 5h reset, higher 7d pct — must not take the store.
+    _, _, u7, _ = reconcile_account(44.0, now - 50000, 15.0, r7,
+                                    path=p, now=now + 1)
+    assert u7 == 3.0
+    # ...and replaying it for the whole grace period must not block a fresh
+    # downward reading either (it's not a confirmation).
+    for i in range(3):
+        reconcile_account(44.0, now - 50000, 15.0, r7,
+                          path=p, now=now + 10 + i)
+    _, _, u7, _ = reconcile_account(17.0, r5_fresh, 3.0, r7,
+                                    path=p, now=now + 20)
+    assert u7 == 3.0
+
+def test_reconcile_stale_blob_seeds_empty_store_as_passthrough(tmp_path):
+    # With nothing stored, a stale blob's plausible 7d value may pass through
+    # for display (best info available) but must not be persisted as a
+    # confirmed reading.
+    import json
+    p = tmp_path / "latest.json"
+    now = 100000.0
+    _, _, u7, _ = reconcile_account(44.0, now - 50000, 15.0, now + 500000,
+                                    path=p, now=now)
+    assert u7 == 15.0
+    stored = json.loads(p.read_text()) if p.exists() else {}
+    assert "seven_day" not in stored
+
+
+# --- reconcile_account: a reading's identity is (window, resets_at) ---
+# Blob origin (which account produced it) is NOT in stdin, so with parallel
+# sessions logged into different accounts, BOTH accounts' readings land in the
+# same store. Readings must therefore coexist per resets_at, and each render
+# must display the reading matching ITS OWN blob's resets_at — never another
+# window's. Live incident 2026-06-12: the bar showed the other account's
+# 7d 14%/Jun15 while this account was at 77%/Jun14, because "later reset wins"
+# had no heal path for a correct EARLIER-reset reading.
+
+def test_reconcile_other_account_later_reset_does_not_mask_own_window(tmp_path):
+    p = tmp_path / "latest.json"
+    now = 100000.0
+    r7_other = now + 600000.0          # other account's 7d resets LATER
+    r7_own = now + 200000.0            # this account's 7d resets EARLIER
+    # Other account's session writes first (and is actively confirming).
+    reconcile_account(50.0, now + 17000, 14.0, r7_other, path=p, now=now)
+    # This session's fresh blob must come back verbatim, not masked.
+    _, _, u7, r7 = reconcile_account(55.0, now + 16000, 77.0, r7_own,
+                                     path=p, now=now + 1)
+    assert (u7, r7) == (77.0, r7_own)
+    # And the other account's sessions still see their own window.
+    _, _, u7b, r7b = reconcile_account(50.0, now + 17000, 14.0, r7_other,
+                                       path=p, now=now + 2)
+    assert (u7b, r7b) == (14.0, r7_other)
+
+
+def test_reconcile_other_account_confirmations_do_not_mask_own_window(tmp_path):
+    # The other account confirming its reading at ~1Hz must never bleed into
+    # what this account's sessions display, no matter how fresh it is.
+    p = tmp_path / "latest.json"
+    now = 100000.0
+    r7_other, r7_own = now + 600000.0, now + 200000.0
+    reconcile_account(50.0, now + 17000, 14.0, r7_other, path=p, now=now)
+    for i in range(1, 40):
+        reconcile_account(50.0, now + 17000, 14.0, r7_other, path=p, now=now + i)
+    _, _, u7, r7 = reconcile_account(55.0, now + 16000, 77.0, r7_own,
+                                     path=p, now=now + 40)
+    assert (u7, r7) == (77.0, r7_own)
+
+
+def test_reconcile_same_window_still_shared_across_sessions(tmp_path):
+    # Sessions whose blobs carry the SAME resets_at (same account window) keep
+    # converging to the highest confirmed reading — sharing must survive the
+    # per-reset split.
+    p = tmp_path / "latest.json"
+    now = 100000.0
+    r7 = now + 200000.0
+    reconcile_account(55.0, now + 16000, 77.0, r7, path=p, now=now)
+    _, _, u7, _ = reconcile_account(55.0, now + 16000, 60.0, r7, path=p, now=now + 1)
+    assert u7 == 77.0
+
+
+def test_reconcile_stale_blob_displays_its_own_windows_stored_reading(tmp_path):
+    # An idle session (stale blob: expired 5h reset) replaying window r7_own
+    # must display r7_own's stored reading — updated meanwhile by its sibling
+    # sessions — not another account's window that happens to be in the store.
+    p = tmp_path / "latest.json"
+    now = 100000.0
+    r7_other, r7_own = now + 600000.0, now + 200000.0
+    reconcile_account(50.0, now + 17000, 14.0, r7_other, path=p, now=now)
+    reconcile_account(55.0, now + 16000, 77.0, r7_own, path=p, now=now + 1)
+    _, _, u7, r7 = reconcile_account(40.0, now - 50000, 70.0, r7_own,
+                                     path=p, now=now + 2)
+    assert (u7, r7) == (77.0, r7_own)
+
+
+def test_reconcile_replaces_poisoned_stored_reset(tmp_path):
+    import json
+    p = tmp_path / "latest.json"
+    now = 1000.0
+    p.write_text(json.dumps({
+        "five_hour": {"used": 12.0, "resets_at": 9999999999.0},
+        "seven_day": {"used": 30.0, "resets_at": 9999999999.0},
+    }))
+    u5, r5, u7, r7 = reconcile_account(5.0, now + 3000, 4.0, now + 9000, path=p, now=now)
+    assert (u5, r5, u7, r7) == (5.0, now + 3000, 4.0, now + 9000)
+
+
+def test_project_5h_tracks_acceleration_with_short_lookback():
+    """Ramp scenario (backtest 2026-07-02): slow first half-hour, fast last
+    half-hour. The 1h trailing rate averages the ramp away; the 30-min
+    lookback must pull the projection up toward the current burn rate."""
+    import codex_statebar.predict as predict
+    now = 1_782_900_000.0
+    reset = now + 2.5 * 3600           # mid-window
+    samples = []
+    # 60→30 min ago: +1% over 30 min (2%/h)
+    for k in range(4):
+        samples.append({"observed_at": now - 3600 + k * 600,
+                        "used_pct": 10.0 + 0.25 * k, "resets_at": reset})
+    # last 30 min: +6% (12%/h burst)
+    for k in range(4):
+        samples.append({"observed_at": now - 1800 + (k + 1) * 450,
+                        "used_pct": 11.0 + 1.5 * (k + 1), "resets_at": reset})
+    used = samples[-1]["used_pct"]
+    p = predict.project_5h(used, reset, now, samples)
+    slow_only = predict._rate_from_samples(samples, now, 3600.0, window="five_hour")
+    fast = predict._rate_from_samples(samples, now, 1800.0, window="five_hour")
+    assert fast > slow_only            # the ramp is real in the data
+    # projection must reflect at least the blended fast rate, not the 1h average
+    assert p > used + (slow_only * 0.55 + 0.0) * (reset - now)

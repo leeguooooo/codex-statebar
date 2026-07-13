@@ -1,0 +1,200 @@
+"""End-to-end main() tests for no-quota mode.
+
+Drives core.main() with stdin + a monkeypatched environment, asserting the
+rendered classic line switches between the quota layout (5h/7d bars) and the
+no-quota layout (ctx bar) based on ANTHROPIC_BASE_URL / CS_API_MODE.
+"""
+
+import io
+import json
+import sys
+
+
+def _payload_with_quota():
+    """A payload that DOES carry official rate_limits + a context window."""
+    return json.dumps({
+        "session_id": "nq",
+        "transcript_path": "/n.jsonl",
+        "model": {"id": "o", "display_name": "Opus 4.8"},
+        "rate_limits": {
+            "five_hour": {"used_percentage": 42, "resets_at": 9999999999},
+            "seven_day": {"used_percentage": 18, "resets_at": 9999999999},
+        },
+        "context_window": {"used_percentage": 35, "context_window_size": 1000000,
+                           "total_input_tokens": 350000},
+    })
+
+
+def _write_config(tmp_path, **values):
+    (tmp_path / ".claude").mkdir(parents=True)
+    base = {
+        "show_project_branch": False,
+        "show_cache_age": False,
+        "show_todos": False,
+        "show_mode": False,
+    }
+    base.update(values)
+    path = tmp_path / ".claude" / "codex-statebar.json"
+    path.write_text(json.dumps(base), encoding="utf-8")
+    return path
+
+
+def _run(tmp_path, monkeypatch, payload):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    config_path = _write_config(tmp_path)
+    import codex_statebar.config as config
+    monkeypatch.setattr(config, "CONFIG_PATH", config_path)
+    monkeypatch.setattr(sys, "stdin", io.StringIO(payload))
+    from codex_statebar.core import main
+    main(use_color=False, _suppress_side_effects=True)
+
+
+def test_relay_env_forces_no_quota_layout(tmp_path, monkeypatch, capsys):
+    """ANTHROPIC_BASE_URL relay → ctx bar, quota bars suppressed even though the
+    payload carried rate_limits (they aren't the official quota on a relay)."""
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://relay.example.com")
+    monkeypatch.delenv("CS_API_MODE", raising=False)
+    _run(tmp_path, monkeypatch, _payload_with_quota())
+    out = capsys.readouterr().out
+    assert "ctx[" in out
+    assert "5h[" not in out
+    assert "7d[" not in out
+
+
+def test_official_env_keeps_quota_layout(tmp_path, monkeypatch, capsys):
+    """No relay env → unchanged: 5h/7d bars render, no ctx bar."""
+    monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+    monkeypatch.delenv("CS_API_MODE", raising=False)
+    monkeypatch.delenv("CLAUDE_CODE_USE_BEDROCK", raising=False)
+    monkeypatch.delenv("CLAUDE_CODE_USE_VERTEX", raising=False)
+    _run(tmp_path, monkeypatch, _payload_with_quota())
+    out = capsys.readouterr().out
+    assert "5h[" in out
+    assert "ctx[" not in out
+
+
+def test_cs_api_mode_off_overrides_relay_env(tmp_path, monkeypatch, capsys):
+    """CS_API_MODE=off forces the official layout back even on a relay."""
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://relay.example.com")
+    monkeypatch.setenv("CS_API_MODE", "off")
+    _run(tmp_path, monkeypatch, _payload_with_quota())
+    out = capsys.readouterr().out
+    assert "5h[" in out
+    assert "ctx[" not in out
+
+
+def _payload_no_quota_with_transcript(tp, version="2.1.90"):
+    """No rate_limits at all (relay stripped them), but a real transcript path.
+    `version` is Claude Code's reported version — the heuristic only fires on a
+    version new enough to emit rate_limits (so an old-client official user isn't
+    misread as a relay)."""
+    return json.dumps({
+        "session_id": "nqh",
+        "transcript_path": tp,
+        "version": version,
+        "model": {"id": "o", "display_name": "Opus 4.8"},
+        "context_window": {"used_percentage": 35, "context_window_size": 1000000,
+                           "total_input_tokens": 350000},
+    })
+
+
+def test_heuristic_switches_layout_without_env(tmp_path, monkeypatch, capsys):
+    """No relay env, no quota, but the transcript has an assistant turn →
+    heuristic flips to the ctx layout (insurance for un-inherited env)."""
+    monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+    monkeypatch.delenv("CS_API_MODE", raising=False)
+    monkeypatch.delenv("CLAUDE_CODE_USE_BEDROCK", raising=False)
+    monkeypatch.delenv("CLAUDE_CODE_USE_VERTEX", raising=False)
+    tp = tmp_path / "t.jsonl"
+    tp.write_text(json.dumps({
+        "type": "assistant", "timestamp": "2999-01-01T00:00:00.000Z",
+        "message": {"usage": {"input_tokens": 10, "output_tokens": 5}},
+    }) + "\n", encoding="utf-8")
+    _run(tmp_path, monkeypatch, _payload_no_quota_with_transcript(str(tp)))
+    out = capsys.readouterr().out
+    assert "ctx[" in out
+    assert "5h[" not in out
+
+
+def test_heuristic_silent_with_empty_transcript(tmp_path, monkeypatch, capsys):
+    """No env, no quota, transcript has NO assistant turn yet → stay in the
+    waiting/quota layout (don't prematurely switch at session start)."""
+    monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+    monkeypatch.delenv("CS_API_MODE", raising=False)
+    monkeypatch.delenv("CLAUDE_CODE_USE_BEDROCK", raising=False)
+    monkeypatch.delenv("CLAUDE_CODE_USE_VERTEX", raising=False)
+    tp = tmp_path / "empty.jsonl"
+    tp.write_text(json.dumps({"type": "user", "timestamp": "2999-01-01T00:00:00Z"}) + "\n",
+                  encoding="utf-8")
+    _run(tmp_path, monkeypatch, _payload_no_quota_with_transcript(str(tp)))
+    out = capsys.readouterr().out
+    assert "ctx[" not in out
+
+
+def test_heuristic_silent_on_old_claude_version(tmp_path, monkeypatch, capsys):
+    """Old Claude Code (no rate_limits emitted) + official subscription must NOT
+    be misread as a relay by the heuristic — keep the existing layout."""
+    monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+    monkeypatch.delenv("CS_API_MODE", raising=False)
+    monkeypatch.delenv("CLAUDE_CODE_USE_BEDROCK", raising=False)
+    monkeypatch.delenv("CLAUDE_CODE_USE_VERTEX", raising=False)
+    tp = tmp_path / "t.jsonl"
+    tp.write_text(json.dumps({
+        "type": "assistant", "timestamp": "2999-01-01T00:00:00.000Z",
+        "message": {"usage": {"input_tokens": 10, "output_tokens": 5}},
+    }) + "\n", encoding="utf-8")
+    _run(tmp_path, monkeypatch, _payload_no_quota_with_transcript(str(tp), version="2.1.50"))
+    out = capsys.readouterr().out
+    assert "ctx[" not in out
+
+
+# ---------------------------------------------------------------------------
+# Per-session env (`_cs_env`) stamped by render_thin must drive no-quota
+# detection, NOT the process os.environ — the shared daemon's environment is
+# frozen at its own start and is not this session's.
+# ---------------------------------------------------------------------------
+
+def _payload_with_quota_and_env(session_env: dict):
+    d = json.loads(_payload_with_quota())
+    d["_cs_env"] = session_env
+    return json.dumps(d)
+
+
+def test_session_env_relay_overrides_clean_process_env(tmp_path, monkeypatch, capsys):
+    """Daemon scenario: os.environ is clean (daemon start env) but THIS session
+    is a relay. The stamped _cs_env must flip to the no-quota layout."""
+    monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+    monkeypatch.delenv("CS_API_MODE", raising=False)
+    monkeypatch.delenv("CLAUDE_CODE_USE_BEDROCK", raising=False)
+    monkeypatch.delenv("CLAUDE_CODE_USE_VERTEX", raising=False)
+    payload = _payload_with_quota_and_env(
+        {"ANTHROPIC_BASE_URL": "https://relay.example.com"})
+    _run(tmp_path, monkeypatch, payload)
+    out = capsys.readouterr().out
+    assert "ctx[" in out
+    assert "5h[" not in out
+
+
+def test_session_env_official_overrides_polluted_process_env(tmp_path, monkeypatch, capsys):
+    """Inverse: os.environ carries a relay var (e.g. the daemon was started in a
+    relay shell) but THIS session is official (empty _cs_env). The session env
+    must win → keep the quota layout."""
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://relay.example.com")
+    monkeypatch.delenv("CS_API_MODE", raising=False)
+    payload = _payload_with_quota_and_env({})  # official session: no relay signal
+    _run(tmp_path, monkeypatch, payload)
+    out = capsys.readouterr().out
+    assert "5h[" in out
+    assert "ctx[" not in out
+
+
+def test_session_env_cs_api_mode_off_overrides_polluted_env(tmp_path, monkeypatch, capsys):
+    """Per-session CS_API_MODE=off forces official layout even if os.environ and
+    the session base-url both look like a relay."""
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://relay.example.com")
+    payload = _payload_with_quota_and_env(
+        {"ANTHROPIC_BASE_URL": "https://relay.example.com", "CS_API_MODE": "off"})
+    _run(tmp_path, monkeypatch, payload)
+    out = capsys.readouterr().out
+    assert "5h[" in out
+    assert "ctx[" not in out

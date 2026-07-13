@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "codex-statebar"
+version = "0.1.0"
+authors = [
+    {name = "leeguooooo", email = "leeguooooo@gmail.com"}
+]
+description = "Rich status bar for Codex CLI usage, context, Git and session state"
+readme = {file = "README.html", content-type = "text/html"}
+license = {text = "MIT"}
+requires-python = ">=3.9"
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Monitoring",
+]
+keywords = ["codex", "openai", "monitoring", "statusbar", "token-usage"]
+
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/leeguooooo/codex-statebar"
+Repository = "https://github.com/leeguooooo/codex-statebar"
+Issues = "https://github.com/leeguooooo/codex-statebar/issues"
+Releases = "https://github.com/leeguooooo/codex-statebar/releases"
+
+[project.scripts]
+codex-statebar = "codex_statebar.cli:main"
+cxs = "codex_statebar.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+codex_statebar = ["*.py", "skills/**/*.md"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+]

@@ -1,0 +1,54 @@
+# macOS
+.DS_Store
+
+# No lockfile is required for the stdlib-only runtime.
+uv.lock
+
+# Python cache/bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# IDE/settings
+.vscode/
+.idea/
+
+# Tests/coverage caches
+.pytest_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+
+# Local env/config (keep the example file tracked)
+codex-statebar.json
+*.local.json
+.env
+.env.*
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+src/*.egg-info/
+.eggs/
+
+# Test and draft files (root-level scratch test files only)
+/test_*.py
+*_draft.md
+*_example.json
+setup_*.py
+
+# Local Codex project config
+.codex/
+
+# Agent runtime state
+.omx/
+
+# CodeGraph local index (MCP server)
+.codegraph/

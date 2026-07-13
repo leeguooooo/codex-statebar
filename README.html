@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Codex Statebar</title>
+  <style>
+    :root { --fg:#20242a; --muted:#68707c; --accent:#356fa8; --border:#d8dde4; --bg:#f7f8fa; --panel:#fff; }
+    * { box-sizing:border-box; }
+    body { margin:0; color:var(--fg); background:var(--bg); font:15px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif; }
+    main { max-width:980px; margin:0 auto; padding:56px 28px 80px; }
+    header { border-bottom:1px solid var(--border); padding-bottom:28px; }
+    h1 { margin:0 0 8px; font-size:38px; letter-spacing:-.03em; }
+    h2 { margin:38px 0 14px; font-size:22px; }
+    p { max-width:780px; }
+    .lead { color:var(--muted); font-size:18px; }
+    code, pre { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+    pre { overflow:auto; padding:16px 18px; background:#1f242b; color:#eef2f6; border-radius:7px; }
+    table { width:100%; border-collapse:collapse; background:var(--panel); }
+    th, td { padding:11px 13px; border:1px solid var(--border); text-align:left; vertical-align:top; }
+    th { background:#eef2f6; }
+    aside { margin:22px 0; padding:14px 17px; border-left:4px solid var(--accent); background:#edf4fa; }
+    a { color:var(--accent); }
+  </style>
+</head>
+<body><main>
+  <header>
+    <h1>Codex Statebar</h1>
+    <p class="lead">为 Codex CLI 提供配额、上下文、模型、推理强度、Git、活动、预测和多主题状态栏。</p>
+  </header>
+
+  <section>
+    <h2>当前输出</h2>
+    <pre>5h[░░░--%░░░░]⏰-- | 7d[█░░░7%░░░░]⏰6d21h →91% | gpt-5.6(178.7k/353.4k)
+⤷ codex-statebar ⎇ main●
+⚙ effort:high</pre>
+    <p>数据直接来自本地 <code>$CODEX_HOME/sessions/**/rollout-*.jsonl</code>；不会读取 <code>auth.json</code>，不会上传 session 内容。</p>
+  </section>
+
+  <section>
+    <h2>安装</h2>
+    <pre>curl -fsSL https://raw.githubusercontent.com/leeguooooo/codex-statebar/main/install.sh | sh
+cxs doctor</pre>
+    <p>发布物由 GitHub Actions 构建为独立二进制；用户端不需要 Python。</p>
+  </section>
+
+  <section>
+    <h2>使用</h2>
+    <table>
+      <thead><tr><th>目标</th><th>命令</th></tr></thead>
+      <tbody>
+        <tr><td>显示当前状态</td><td><code>cxs</code></td></tr>
+        <tr><td>实时独立面板</td><td><code>cxs watch</code></td></tr>
+        <tr><td>诊断数据与接入</td><td><code>cxs doctor</code></td></tr>
+        <tr><td>主题 / 样式预览</td><td><code>cxs preview</code></td></tr>
+        <tr><td>切换主题</td><td><code>cxs config set theme nord</code></td></tr>
+        <tr><td>切换样式</td><td><code>cxs config set style capsule</code></td></tr>
+        <tr><td>配置 Codex 原生降级栏</td><td><code>cxs --setup</code></td></tr>
+        <tr><td>JSON 输出</td><td><code>cxs --json-output</code></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Codex TUI 接入边界</h2>
+    <aside>稳定版 Codex 支持 <code>[tui].status_line</code> 内置字段列表，但目前没有 Claude Code 那种“执行外部命令并渲染 stdout”的扩展点。因此 <code>cxs --setup</code> 只配置原生降级字段，不会伪装成富状态栏已嵌入。</aside>
+    <p>完整富渲染当前可用于直接命令、<code>watch</code>、tmux / shell prompt，以及提供外部状态命令 hook 的 Codex 补丁版或未来版本。相关上游请求见 <a href="https://github.com/openai/codex/issues/17827">openai/codex#17827</a>。</p>
+  </section>
+
+  <section>
+    <h2>开发验证</h2>
+    <pre>python -m pip install -e . pytest
+python -m pytest -q
+python -m compileall -q src
+cxs --no-color</pre>
+  </section>
+</main></body>
+</html>

@@ -1,0 +1,64 @@
+name: Release binaries
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: macos-15-intel
+            target: macos-x86_64
+            binary: cxs
+          - os: macos-15
+            target: macos-arm64
+            binary: cxs
+          - os: ubuntu-24.04
+            target: linux-x86_64
+            binary: cxs
+          - os: ubuntu-24.04-arm
+            target: linux-arm64
+            binary: cxs
+          - os: windows-latest
+            target: windows-x86_64
+            binary: cxs.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install . pyinstaller
+      - run: pyinstaller --clean --onefile --name cxs --collect-data codex_statebar src/codex_statebar/__main__.py
+      - shell: bash
+        run: |
+          mkdir package
+          cp "dist/${{ matrix.binary }}" "package/${{ matrix.binary }}"
+          tar -czf "cxs-${{ matrix.target }}.tar.gz" -C package "${{ matrix.binary }}"
+          python -c "import hashlib,pathlib; p=pathlib.Path('cxs-${{ matrix.target }}.tar.gz'); pathlib.Path(str(p)+'.sha256').write_text(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name+'\n')"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cxs-${{ matrix.target }}
+          path: |
+            cxs-${{ matrix.target }}.tar.gz
+            cxs-${{ matrix.target }}.tar.gz.sha256
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: cxs-*
+          merge-multiple: true
+          path: dist
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
