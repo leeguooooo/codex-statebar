@@ -226,6 +226,15 @@ def test_argv_probe_is_memoised_per_pid(monkeypatch):
     party._ARGV_CACHE.clear()
 
 
+def test_pid_alive_uses_cross_platform_daemon_probe(monkeypatch):
+    from codex_statebar import daemon
+
+    seen = []
+    monkeypatch.setattr(daemon, "is_alive", lambda pid: seen.append(pid) or True)
+    assert party._pid_alive(4242) is True
+    assert seen == [4242]
+
+
 def test_argv_probe_failure_is_not_cached(monkeypatch):
     """A transient ps failure must not pin an answer for the pid's lifetime."""
     from codex_statebar import party
