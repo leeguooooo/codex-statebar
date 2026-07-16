@@ -21,10 +21,10 @@ from codex_statebar import daemon as _d
 from codex_statebar import render_thin
 
 
-def test_codex_footer_collapses_multiline_output(monkeypatch):
+def test_codex_footer_preserves_multiline_output(monkeypatch):
     monkeypatch.setenv("CODEX_STATUS_LINE", "1")
     value = render_thin._for_codex_footer("usage\nproject\nmode\n")
-    assert value == "usage  ·  project  ·  mode\n"
+    assert value == "usage\nproject\nmode\n"
 
 
 def test_non_codex_renderer_preserves_multiline_output(monkeypatch):

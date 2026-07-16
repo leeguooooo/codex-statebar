@@ -6,7 +6,11 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_ROOT="${CODEX_BUILD_ROOT:-$ROOT/build/codex-$VERSION}"
 SOURCE_DIR="$BUILD_ROOT/source"
 ARCHIVE="$BUILD_ROOT/codex-$VERSION.tar.gz"
-PATCH_FILE="$ROOT/patches/codex-0.144.1-external-status-line.patch"
+CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$BUILD_ROOT/target}"
+PATCH_FILES=(
+  "$ROOT/patches/codex-0.144.1-external-status-line.patch"
+  "$ROOT/patches/codex-0.144.1-multiline-status-line.patch"
+)
 OUTPUT_DIR="${CODEX_OUTPUT_DIR:-$ROOT/dist}"
 
 if [[ "$VERSION" != "0.144.1" ]]; then
@@ -24,13 +28,16 @@ fi
 rm -rf "$SOURCE_DIR"
 mkdir -p "$SOURCE_DIR"
 tar -xzf "$ARCHIVE" -C "$SOURCE_DIR" --strip-components=1
-patch -d "$SOURCE_DIR" -p1 --forward < "$PATCH_FILE"
+for patch_file in "${PATCH_FILES[@]}"; do
+  patch -d "$SOURCE_DIR" -p1 --forward < "$patch_file"
+done
 
 cargo build \
   --manifest-path "$SOURCE_DIR/codex-rs/Cargo.toml" \
   --package codex-cli \
+  --target-dir "$CARGO_TARGET_DIR" \
   --release
 
-cp "$SOURCE_DIR/codex-rs/target/release/codex" "$OUTPUT_DIR/codex-cxs"
+cp "$CARGO_TARGET_DIR/release/codex" "$OUTPUT_DIR/codex-cxs"
 chmod +x "$OUTPUT_DIR/codex-cxs"
 echo "built $OUTPUT_DIR/codex-cxs"

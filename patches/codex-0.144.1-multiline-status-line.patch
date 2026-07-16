@@ -1,0 +1,268 @@
+# Codex CLI 0.144.1: multi-row external command status line
+# Apply after codex-0.144.1-external-status-line.patch from the source root.
+# External command stdout is capped at three rows and grows the footer.
+
+--- a/codex-rs/tui/src/app/event_dispatch.rs
++++ b/codex-rs/tui/src/app/event_dispatch.rs
+@@ -25,7 +25,7 @@
+                     && self.chat_widget.external_status_line_command().is_some()
+                 {
+                     self.chat_widget
+-                        .set_status_line(Some(ansi_escape_line(&line)));
++                        .set_status_lines(line.lines().map(ansi_escape_line).collect());
+                 }
+             }
+             AppEvent::NewSession => {
+--- a/codex-rs/tui/src/bottom_pane/chat_composer/footer_state.rs
++++ b/codex-rs/tui/src/bottom_pane/chat_composer/footer_state.rs
+@@ -26,6 +26,7 @@
+     pub(super) goal_status_indicator: Option<GoalStatusIndicator>,
+     pub(super) ide_context_active: bool,
+     pub(super) status_line_value: Option<Line<'static>>,
++    pub(super) status_line_extra_lines: Vec<Line<'static>>,
+     pub(super) status_line_hyperlink_url: Option<String>,
+     pub(super) status_line_enabled: bool,
+     pub(super) side_conversation_context_label: Option<String>,
+--- a/codex-rs/tui/src/bottom_pane/chat_composer.rs
++++ b/codex-rs/tui/src/bottom_pane/chat_composer.rs
+@@ -522,6 +522,7 @@
+                 goal_status_indicator: None,
+                 ide_context_active: false,
+                 status_line_value: None,
++                status_line_extra_lines: Vec::new(),
+                 status_line_hyperlink_url: None,
+                 status_line_enabled: false,
+                 side_conversation_context_label: None,
+@@ -740,9 +741,7 @@
+         textarea_right_reserve: u16,
+     ) -> [Rect; 4] {
+         let footer_props = self.footer_props();
+-        let footer_hint_height = self
+-            .custom_footer_height()
+-            .unwrap_or_else(|| footer_height(&footer_props));
++        let footer_hint_height = self.footer_hint_height(&footer_props);
+         let footer_spacing = Self::footer_spacing(footer_hint_height);
+         let footer_total_height = footer_hint_height + footer_spacing;
+         let popup_constraint = match &self.popups.active {
+@@ -3545,6 +3544,24 @@
+             .map(|items| if items.is_empty() { 0 } else { 1 })
+     }
+ 
++    fn footer_hint_height(&self, footer_props: &FooterProps) -> u16 {
++        let Some(custom_height) = self.custom_footer_height() else {
++            let base = footer_height(footer_props);
++            return if uses_passive_footer_status_layout(footer_props) {
++                base.saturating_add(
++                    self.footer
++                        .status_line_extra_lines
++                        .len()
++                        .try_into()
++                        .unwrap_or(u16::MAX),
++                )
++            } else {
++                base
++            };
++        };
++        custom_height
++    }
++
+     pub(crate) fn sync_popups(&mut self) {
+         self.sync_slash_command_elements();
+         if self.history_search.is_some() {
+@@ -3978,13 +3995,27 @@
+     }
+ 
+     pub(crate) fn set_status_line(&mut self, status_line: Option<Line<'static>>) -> bool {
+-        if self.footer.status_line_value == status_line {
++        if self.footer.status_line_value == status_line
++            && self.footer.status_line_extra_lines.is_empty()
++        {
+             return false;
+         }
+         self.footer.status_line_value = status_line;
++        self.footer.status_line_extra_lines.clear();
+         true
+     }
+ 
++    pub(crate) fn set_status_lines(&mut self, status_lines: Vec<Line<'static>>) -> bool {
++        let first = status_lines.first().cloned();
++        let extra = status_lines.into_iter().skip(1).collect::<Vec<_>>();
++        if self.footer.status_line_value == first && self.footer.status_line_extra_lines == extra {
++            return false;
++        }
++        self.footer.status_line_value = first;
++        self.footer.status_line_extra_lines = extra;
++        true
++    }
++
+     pub(crate) fn set_status_line_hyperlink(&mut self, url: Option<String>) -> bool {
+         if self.footer.status_line_hyperlink_url == url {
+             return false;
+@@ -4164,9 +4195,7 @@
+         textarea_right_reserve: u16,
+     ) -> u16 {
+         let footer_props = self.footer_props();
+-        let footer_hint_height = self
+-            .custom_footer_height()
+-            .unwrap_or_else(|| footer_height(&footer_props));
++        let footer_hint_height = self.footer_hint_height(&footer_props);
+         let footer_spacing = Self::footer_spacing(footer_hint_height);
+         let footer_total_height = footer_hint_height + footer_spacing;
+         const COLS_WITH_MARGIN: u16 = LIVE_PREFIX_COLS + 1;
+@@ -4242,9 +4271,7 @@
+                     | FooterMode::ShortcutOverlay
+                     | FooterMode::EscHint => false,
+                 };
+-                let custom_height = self.custom_footer_height();
+-                let footer_hint_height =
+-                    custom_height.unwrap_or_else(|| footer_height(&footer_props));
++                let footer_hint_height = self.footer_hint_height(&footer_props);
+                 let footer_spacing = Self::footer_spacing(footer_hint_height);
+                 let hint_rect = if footer_spacing > 0 && footer_hint_height > 0 {
+                     let [_, hint_rect] = Layout::vertical([
+@@ -4447,6 +4474,31 @@
+                         && let Some(url) = self.footer.status_line_hyperlink_url.as_deref()
+                     {
+                         mark_underlined_hyperlink(buf, hint_rect, url);
++                    }
++                    if status_line_active {
++                        for (index, line) in self.footer.status_line_extra_lines.iter().enumerate()
++                        {
++                            let Ok(offset) = u16::try_from(index + 1) else {
++                                break;
++                            };
++                            if offset >= hint_rect.height {
++                                break;
++                            }
++                            let row = Rect::new(
++                                hint_rect.x,
++                                hint_rect.y.saturating_add(offset),
++                                hint_rect.width,
++                                1,
++                            );
++                            render_footer_line(
++                                row,
++                                buf,
++                                truncate_line_with_ellipsis_if_overflow(
++                                    line.clone(),
++                                    available_width,
++                                ),
++                            );
++                        }
+                     }
+                 }
+             }
+@@ -4904,6 +4956,42 @@
+     }
+ 
+     #[test]
++    fn external_status_lines_grow_and_render_the_footer() {
++        let (tx, _rx) = unbounded_channel::<AppEvent>();
++        let sender = AppEventSender::new(tx);
++        let mut composer = ChatComposer::new(
++            /*has_input_focus*/ true,
++            sender,
++            /*enhanced_keys_supported*/ true,
++            "Ask Codex to do anything".to_string(),
++            /*disable_paste_burst*/ false,
++        );
++        composer.set_status_line_enabled(/*enabled*/ true);
++        composer.set_status_line(Some(Line::from("usage")));
++        let single_line_height = composer.desired_height(100);
++
++        composer.set_status_lines(vec![
++            Line::from("usage"),
++            Line::from("project"),
++            Line::from("mode"),
++        ]);
++        let multiline_height = composer.desired_height(100);
++        assert_eq!(multiline_height, single_line_height + 2);
++
++        let area = Rect::new(0, 0, 100, multiline_height);
++        let mut buf = Buffer::empty(area);
++        composer.render(area, &mut buf);
++        let row_text = |y| {
++            (0..area.width)
++                .map(|x| buf[(x, y)].symbol().chars().next().unwrap_or(' '))
++                .collect::<String>()
++        };
++        assert!(row_text(area.height - 3).contains("usage"));
++        assert!(row_text(area.height - 2).contains("project"));
++        assert!(row_text(area.height - 1).contains("mode"));
++    }
++
++    #[test]
+     fn shell_command_uses_shell_accent_style() {
+         let (tx, _rx) = unbounded_channel::<AppEvent>();
+         let sender = AppEventSender::new(tx);
+--- a/codex-rs/tui/src/bottom_pane/mod.rs
++++ b/codex-rs/tui/src/bottom_pane/mod.rs
+@@ -1764,6 +1764,12 @@
+ 
+     pub(crate) fn set_status_line(&mut self, status_line: Option<Line<'static>>) {
+         if self.composer.set_status_line(status_line) {
++            self.request_redraw();
++        }
++    }
++
++    pub(crate) fn set_status_lines(&mut self, status_lines: Vec<Line<'static>>) {
++        if self.composer.set_status_lines(status_lines) {
+             self.request_redraw();
+         }
+     }
+--- a/codex-rs/tui/src/chatwidget/status_controls.rs
++++ b/codex-rs/tui/src/chatwidget/status_controls.rs
+@@ -69,6 +69,11 @@
+         self.bottom_pane.set_status_line(status_line);
+     }
+ 
++    /// Sets a multi-row status line produced by an external command.
++    pub(crate) fn set_status_lines(&mut self, status_lines: Vec<Line<'static>>) {
++        self.bottom_pane.set_status_lines(status_lines);
++    }
++
+     /// Sets the terminal hyperlink target for the currently rendered footer status line.
+     pub(crate) fn set_status_line_hyperlink(&mut self, url: Option<String>) {
+         self.bottom_pane.set_status_line_hyperlink(url);
+--- a/codex-rs/tui/src/external_status_line.rs
++++ b/codex-rs/tui/src/external_status_line.rs
+@@ -15,6 +15,7 @@
+ // fully asynchronous, so allow the cold render to complete; subsequent daemon
+ // backed renders are normally near-instant.
+ const STATUS_LINE_TIMEOUT: Duration = Duration::from_secs(15);
++const MAX_STATUS_LINE_ROWS: usize = 3;
+ 
+ #[derive(Debug, Default)]
+ struct RunnerState {
+@@ -140,8 +141,9 @@
+     }
+     Ok(String::from_utf8_lossy(&output.stdout)
+         .lines()
+-        .next()
+-        .unwrap_or_default()
++        .take(MAX_STATUS_LINE_ROWS)
++        .collect::<Vec<_>>()
++        .join("\n")
+         .trim_end()
+         .to_string())
+ }
+@@ -152,13 +154,16 @@
+ 
+     #[cfg(unix)]
+     #[tokio::test]
+-    async fn command_receives_json_and_only_first_stdout_line_is_used() {
++    async fn command_receives_json_and_up_to_three_stdout_lines_are_used() {
+         let request = Request {
+             command: vec!["/bin/sh".into(), "-c".into(), "cat".into()],
+-            payload: "first\nsecond\n".into(),
++            payload: "first\nsecond\nthird\nfourth\n".into(),
+             cwd: std::env::current_dir().expect("cwd"),
+             thread_id: None,
+         };
+-        assert_eq!(run_request(&request).await, Ok("first".into()));
++        assert_eq!(
++            run_request(&request).await,
++            Ok("first\nsecond\nthird".into())
++        );
+     }
+ }

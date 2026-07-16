@@ -188,20 +188,14 @@ def _append_suffix(content: str, suffix: str) -> str:
 
 
 def _for_codex_footer(content: str) -> str:
-    """Collapse cxs' rich multi-line layout into Codex's single footer row.
+    """Preserve cxs' rich layout for the patched Codex multi-row footer.
 
-    Claude Code can reserve several rows for statusLine stdout. Codex 0.144.1's
-    footer owns one row, so preserve every segment in order and join the lines
-    instead of silently dropping project/branch/mode information after line 1.
-    ANSI styling stays intact because each source line already resets its own
-    spans.
+    The Rust integration caps external status output at three rows and grows
+    the bottom pane to match.  Keep this hook for one integration boundary,
+    but do not collapse newlines in Python where the TUI can no longer recover
+    them.
     """
-    if os.environ.get("CODEX_STATUS_LINE") != "1":
-        return content
-    trailing_newline = content.endswith("\n")
-    lines = [line for line in content.splitlines() if line.strip()]
-    collapsed = "  ·  ".join(lines)
-    return collapsed + ("\n" if trailing_newline and collapsed else "")
+    return content
 
 
 def _consume_stdin() -> bytes | None:
