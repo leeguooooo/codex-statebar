@@ -1,7 +1,10 @@
 import json
+import io
+import sys
 from pathlib import Path
 
 from codex_statebar import rollout
+from codex_statebar.core import parse_stdin_data
 
 
 def _write_rollout(path: Path, cwd: str) -> None:
@@ -96,3 +99,36 @@ def test_external_payload_works_without_local_rollout(tmp_path, monkeypatch):
     assert status["model_id"] == "gpt-5.6"
     assert status["context_remaining_pct"] == 80.0
     assert status["rate_limit_7d_pct"] == 9
+
+
+def test_persisted_codex_payload_with_cs_env_still_reads_rollout(
+    tmp_path, monkeypatch
+):
+    """The shared thin client stamps _cs_env for both Claude and Codex.
+
+    That marker must not divert a Codex rollout payload into the Claude parser,
+    which would discard the rollout's official quota fields.
+    """
+    home = tmp_path / ".codex"
+    path = home / "sessions/2026/07/13/rollout-thread-1.jsonl"
+    _write_rollout(path, str(tmp_path))
+    monkeypatch.setenv("CODEX_HOME", str(home))
+    payload = {
+        "session_id": "thread-1",
+        "transcript_path": str(path),
+        "context_window": {
+            "context_window_size": 1_000_000,
+            "used_percentage": 0,
+            "total_input_tokens": 0,
+            "total_output_tokens": 0,
+        },
+        "_cs_env": {},
+    }
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+
+    status = parse_stdin_data()
+
+    assert status["rate_limit_pct"] == 12.0
+    assert status["rate_limit_7d_pct"] == 34.0
+    assert status["context_used_pct"] == 25.0
+    assert status["context_window_size"] == 200000

@@ -49,13 +49,48 @@ jobs:
             cxs-${{ matrix.target }}.tar.gz
             cxs-${{ matrix.target }}.tar.gz.sha256
 
+  build-patched-codex:
+    strategy:
+      matrix:
+        include:
+          - os: macos-15-intel
+            target: macos-x86_64
+          - os: macos-15
+            target: macos-arm64
+          - os: ubuntu-24.04
+            target: linux-x86_64
+          - os: ubuntu-24.04-arm
+            target: linux-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: ./scripts/build-patched-codex.sh
+      - shell: bash
+        run: |
+          mkdir patched-package
+          cp dist/codex-cxs patched-package/codex-cxs
+          tar -czf "codex-cxs-${{ matrix.target }}.tar.gz" -C patched-package codex-cxs
+          python3 -c "import hashlib,pathlib; p=pathlib.Path('codex-cxs-${{ matrix.target }}.tar.gz'); pathlib.Path(str(p)+'.sha256').write_text(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name+'\n')"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codex-cxs-${{ matrix.target }}
+          path: |
+            codex-cxs-${{ matrix.target }}.tar.gz
+            codex-cxs-${{ matrix.target }}.tar.gz.sha256
+
   release:
-    needs: build
+    needs: [build, build-patched-codex]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
         with:
           pattern: cxs-*
+          merge-multiple: true
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: codex-cxs-*
           merge-multiple: true
           path: dist
       - uses: softprops/action-gh-release@v2

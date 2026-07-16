@@ -263,6 +263,36 @@ def test_thin_client_fast_path_prints_rendered(monkeypatch, tmp_path: Path, caps
     assert out == "FAKE STATUS LINE\n"
 
 
+def test_codex_status_event_bypasses_previous_daemon_render(
+    monkeypatch, tmp_path: Path
+):
+    """Codex is event-driven, so a previous fresh cache must not win over the
+    payload from the current state change."""
+    _setup_session_paths(monkeypatch, tmp_path)
+    sid = "codex-session"
+    sdir = tmp_path / "sessions" / sid
+    sdir.mkdir(parents=True)
+    (sdir / "rendered.ansi").write_text("OLD 0/1.0M\n", encoding="utf-8")
+    (sdir / "rendered.meta.json").write_text(json.dumps({
+        "generated_at": time.time(),
+        "stale_after_seconds": 5.0,
+    }), encoding="utf-8")
+    payload = json.dumps({"session_id": sid, "marker": "NEW"}).encode()
+    monkeypatch.setattr(render_thin, "_consume_stdin", lambda: payload)
+    monkeypatch.setenv("CODEX_STATUS_LINE", "1")
+
+    seen = {}
+
+    def fake_inline():
+        seen["stdin"] = sys.stdin.read()
+        return 0
+
+    monkeypatch.setattr(render_thin, "_fallback_inline", fake_inline)
+
+    assert render_thin.render() == 0
+    assert json.loads(seen["stdin"])["marker"] == "NEW"
+
+
 def test_thin_client_ignores_legacy_claude_displacement(monkeypatch, tmp_path: Path, capsys):
     """Legacy Claude settings do not conflict with Codex's native list."""
     _setup_session_paths(monkeypatch, tmp_path)

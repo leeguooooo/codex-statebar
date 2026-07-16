@@ -407,6 +407,19 @@ def render() -> int:
         # detects no-quota mode per session, not from its own start-time env.
         _persist_stdin_bytes(_inject_session_env(payload), session_id)
 
+        # Codex invokes the external status command on state changes, not on a
+        # steady 1 Hz poll like Claude Code.  Returning a fresh-looking daemon
+        # cache here can therefore leave the footer stuck on the *previous*
+        # payload forever: the daemon publishes the corrected render later,
+        # but Codex has no reason to call us again.  Render Codex events inline
+        # so the value returned for this invocation always reflects the payload
+        # and rollout that triggered it.  The ~45 ms path is paid only on Codex
+        # state changes and the payload is still persisted for doctor/preview.
+        if os.environ.get("CODEX_STATUS_LINE") == "1":
+            import io
+            sys.stdin = io.StringIO(payload.decode("utf-8", errors="replace"))
+            return _fallback_inline()
+
     # Fast path: if THIS session's daemon-rendered output is fresh, cat
     # the file and return. No core/styles/themes import.
     _, rendered_path, meta_path = _session_paths(session_id)
