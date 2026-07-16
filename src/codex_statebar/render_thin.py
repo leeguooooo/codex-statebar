@@ -188,20 +188,14 @@ def _append_suffix(content: str, suffix: str) -> str:
 
 
 def _for_codex_footer(content: str) -> str:
-    """Collapse cxs' rich multi-line layout into Codex's single footer row.
+    """Preserve cxs' rich layout for the patched Codex multi-row footer.
 
-    Claude Code can reserve several rows for statusLine stdout. Codex 0.144.1's
-    footer owns one row, so preserve every segment in order and join the lines
-    instead of silently dropping project/branch/mode information after line 1.
-    ANSI styling stays intact because each source line already resets its own
-    spans.
+    The Rust integration caps external status output at three rows and grows
+    the bottom pane to match.  Keep this hook for one integration boundary,
+    but do not collapse newlines in Python where the TUI can no longer recover
+    them.
     """
-    if os.environ.get("CODEX_STATUS_LINE") != "1":
-        return content
-    trailing_newline = content.endswith("\n")
-    lines = [line for line in content.splitlines() if line.strip()]
-    collapsed = "  ·  ".join(lines)
-    return collapsed + ("\n" if trailing_newline and collapsed else "")
+    return content
 
 
 def _consume_stdin() -> bytes | None:
@@ -406,6 +400,19 @@ def render() -> int:
         # Stamp the session env BEFORE persisting so the daemon (frozen env)
         # detects no-quota mode per session, not from its own start-time env.
         _persist_stdin_bytes(_inject_session_env(payload), session_id)
+
+        # Codex invokes the external status command on state changes, not on a
+        # steady 1 Hz poll like Claude Code.  Returning a fresh-looking daemon
+        # cache here can therefore leave the footer stuck on the *previous*
+        # payload forever: the daemon publishes the corrected render later,
+        # but Codex has no reason to call us again.  Render Codex events inline
+        # so the value returned for this invocation always reflects the payload
+        # and rollout that triggered it.  The ~45 ms path is paid only on Codex
+        # state changes and the payload is still persisted for doctor/preview.
+        if os.environ.get("CODEX_STATUS_LINE") == "1":
+            import io
+            sys.stdin = io.StringIO(payload.decode("utf-8", errors="replace"))
+            return _fallback_inline()
 
     # Fast path: if THIS session's daemon-rendered output is fresh, cat
     # the file and return. No core/styles/themes import.

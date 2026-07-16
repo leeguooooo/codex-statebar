@@ -42,7 +42,8 @@
     <h2>安装</h2>
     <pre>curl -fsSL https://raw.githubusercontent.com/leeguooooo/codex-statebar/main/install.sh | sh
 cxs doctor</pre>
-    <p>发布物由 GitHub Actions 构建为独立二进制；用户端不需要 Python。</p>
+    <p>一键安装会校验 SHA-256，安装 <code>cxs</code> 与补丁版 <code>codex-cxs</code>，把用户级 <code>codex</code> 指向补丁版，并通过 <code>cxs --setup</code> 接入状态栏。已有的 <code>~/.local/bin/codex</code> 会先备份；ChatGPT App 内置二进制不会被修改。</p>
+    <p>发布物由 GitHub Actions 为 macOS / Linux 构建为独立二进制；用户端不需要 Python 或 Rust。若只想安装而不替换用户级 <code>codex</code>，设置 <code>CODEX_STATEBAR_INSTALL_CODEX_DEFAULT=0</code>。</p>
   </section>
 
   <section>
@@ -71,8 +72,15 @@ cxs doctor</pre>
 cxs --setup
 ./dist/codex-cxs</pre>
     <p><code>cxs --setup</code> 会写入 <code>[tui].status_line = ["command", "…/cxs", "render"]</code>。原生字段模式仍可用；只有首项为 <code>command</code> 时才调用外部渲染器。补丁包含异步执行、更新合并、超时保护、会话隔离与 ANSI 色彩解析。</p>
+    <p>补丁版 Codex 会读取外部命令最多三行输出，并按实际行数自动增高底部状态区，因此 <code>cxs</code> 的配额、项目与模式三行布局可直接嵌入 TUI。三行上限避免异常命令无限撑高界面。</p>
     <p>上游仍在讨论正式扩展点：<a href="https://github.com/openai/codex/issues/17827">openai/codex#17827</a>。在官方支持落地前，构建脚本固定使用 <code>rust-v0.144.1</code>，避免补丁静默套到不兼容版本。</p>
     <p>新建 Codex CLI 后，需要至少发送一条消息，Codex 才会创建可读取的 rollout。若尚未发送消息，<code>cxs</code> 会提示先完成首轮交互；它不会改用同目录的 Desktop 会话。</p>
+  </section>
+
+  <section>
+    <h2>上下文与缓存计算</h2>
+    <p>上下文用量读取最近一次 <code>token_count</code>：<code>total_tokens / model_context_window</code>。<code>cached_input_tokens</code> 虽可减少计费，但仍占用模型上下文，因此包含在已用 token 中；另行计算 billable input 时才从 input tokens 中扣除。</p>
+    <p><code>cache 3m24s</code> 是 Claude prompt cache 的剩余 TTL：使用最近 assistant turn 的时间戳，并从写入桶自动识别 5 分钟或 1 小时 TTL。Codex rollout 目前只提供 cached token 数量，不提供缓存创建时间或 TTL，所以 Codex 内不会伪造 <code>cache COLD</code> 或倒计时。</p>
   </section>
 
   <section>
@@ -82,6 +90,7 @@ python -m pytest -q
 python -m compileall -q src
 cxs --no-color
 patch --dry-run -d /path/to/codex -p1 &lt; patches/codex-0.144.1-external-status-line.patch
+patch --dry-run -d /path/to/codex -p1 &lt; patches/codex-0.144.1-multiline-status-line.patch
 cargo check -p codex-tui</pre>
   </section>
 </main></body>

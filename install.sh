@@ -1,8 +1,10 @@
 #!/bin/sh
 set -eu
 
-REPO="leeguooooo/codex-statebar"
+REPO="${CODEX_STATEBAR_REPO:-leeguooooo/codex-statebar}"
 INSTALL_DIR="${CODEX_STATEBAR_INSTALL_DIR:-$HOME/.local/bin}"
+INSTALL_CODEX_DEFAULT="${CODEX_STATEBAR_INSTALL_CODEX_DEFAULT:-1}"
+SKIP_SETUP="${CODEX_STATEBAR_SKIP_SETUP:-0}"
 
 case "$(uname -s)" in
   Darwin) os="macos" ;;
@@ -16,27 +18,62 @@ case "$(uname -m)" in
   *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;;
 esac
 
-asset="cxs-${os}-${arch}.tar.gz"
-base="https://github.com/${REPO}/releases/latest/download"
+target="${os}-${arch}"
+base="${CODEX_STATEBAR_RELEASE_BASE:-https://github.com/${REPO}/releases/latest/download}"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT INT TERM
 
-curl -fsSL "${base}/${asset}" -o "$tmp/$asset"
-curl -fsSL "${base}/${asset}.sha256" -o "$tmp/$asset.sha256"
+verify_asset() {
+  asset="$1"
+  curl -fsSL "${base}/${asset}" -o "$tmp/$asset"
+  curl -fsSL "${base}/${asset}.sha256" -o "$tmp/$asset.sha256"
 
-if command -v sha256sum >/dev/null 2>&1; then
-  (cd "$tmp" && sha256sum -c "$asset.sha256")
-else
-  expected="$(cut -d ' ' -f 1 "$tmp/$asset.sha256")"
-  actual="$(shasum -a 256 "$tmp/$asset" | cut -d ' ' -f 1)"
-  [ "$expected" = "$actual" ] || { echo "SHA-256 verification failed" >&2; exit 1; }
-fi
+  if command -v sha256sum >/dev/null 2>&1; then
+    (cd "$tmp" && sha256sum -c "$asset.sha256")
+  else
+    expected="$(cut -d ' ' -f 1 "$tmp/$asset.sha256")"
+    actual="$(shasum -a 256 "$tmp/$asset" | cut -d ' ' -f 1)"
+    [ "$expected" = "$actual" ] || {
+      echo "SHA-256 verification failed for $asset" >&2
+      exit 1
+    }
+  fi
+}
+
+cxs_asset="cxs-${target}.tar.gz"
+codex_asset="codex-cxs-${target}.tar.gz"
+verify_asset "$cxs_asset"
+verify_asset "$codex_asset"
 
 mkdir -p "$INSTALL_DIR"
-tar -xzf "$tmp/$asset" -C "$INSTALL_DIR"
-chmod +x "$INSTALL_DIR/cxs"
+tar -xzf "$tmp/$cxs_asset" -C "$INSTALL_DIR"
+tar -xzf "$tmp/$codex_asset" -C "$INSTALL_DIR"
+chmod +x "$INSTALL_DIR/cxs" "$INSTALL_DIR/codex-cxs"
+
+if [ "$INSTALL_CODEX_DEFAULT" = "1" ]; then
+  codex_path="$INSTALL_DIR/codex"
+  if [ -L "$codex_path" ] && [ "$(readlink "$codex_path")" = "codex-cxs" ]; then
+    :
+  else
+    if [ -e "$codex_path" ] || [ -L "$codex_path" ]; then
+      backup="$codex_path.backup.$(date +%Y%m%d%H%M%S)"
+      mv "$codex_path" "$backup"
+      echo "Backed up existing user-level codex to $backup"
+    fi
+    ln -s "codex-cxs" "$codex_path"
+  fi
+fi
+
+if [ "$SKIP_SETUP" != "1" ]; then
+  "$INSTALL_DIR/cxs" --setup
+fi
+
 echo "Installed cxs to $INSTALL_DIR/cxs"
+echo "Installed patched Codex to $INSTALL_DIR/codex-cxs"
+if [ "$INSTALL_CODEX_DEFAULT" = "1" ]; then
+  echo "Activated patched Codex as $INSTALL_DIR/codex"
+fi
 case ":$PATH:" in
   *":$INSTALL_DIR:"*) ;;
-  *) echo "Add $INSTALL_DIR to PATH, then run: cxs doctor" ;;
+  *) echo "Add $INSTALL_DIR to PATH, then run: codex" ;;
 esac

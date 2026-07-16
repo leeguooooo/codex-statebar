@@ -5,6 +5,7 @@
 # refresh_cache_background subsystem was removed as dead code.)
 # ---------------------------------------------------------------------------
 import os
+import pytest
 from codex_statebar.cache import atomic_write_text
 
 
@@ -47,6 +48,7 @@ def test_atomic_write_text_no_temp_on_success(tmp_path):
     assert leftover == []
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Windows chmod does not enforce POSIX write bits")
 def test_atomic_write_text_returns_false_on_readonly_dir(tmp_path):
     """If the parent dir is read-only, atomic_write_text returns False rather
     than raising. Callers (statusLine render path) depend on this contract."""

@@ -116,13 +116,11 @@ def _int_or_none(value: Any) -> Optional[int]:
 def _pid_alive(pid: Optional[int]) -> bool:
     if pid is None or pid <= 0:
         return False
-    try:
-        os.kill(pid, 0)
-        return True
-    except PermissionError:
-        return True
-    except OSError:
-        return False
+    # daemon.is_alive uses kill(pid, 0) on POSIX and a non-destructive
+    # OpenProcess/GetExitCodeProcess probe on Windows. Calling os.kill with
+    # signal 0 directly on Windows can terminate the process being checked.
+    from .daemon import is_alive
+    return is_alive(pid)
 
 
 _ARGV_CACHE: Dict[int, str] = {}

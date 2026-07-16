@@ -21,10 +21,10 @@ from codex_statebar import daemon as _d
 from codex_statebar import render_thin
 
 
-def test_codex_footer_collapses_multiline_output(monkeypatch):
+def test_codex_footer_preserves_multiline_output(monkeypatch):
     monkeypatch.setenv("CODEX_STATUS_LINE", "1")
     value = render_thin._for_codex_footer("usage\nproject\nmode\n")
-    assert value == "usage  ·  project  ·  mode\n"
+    assert value == "usage\nproject\nmode\n"
 
 
 def test_non_codex_renderer_preserves_multiline_output(monkeypatch):
@@ -261,6 +261,36 @@ def test_thin_client_fast_path_prints_rendered(monkeypatch, tmp_path: Path, caps
     out = capsys.readouterr().out
     assert rc == 0
     assert out == "FAKE STATUS LINE\n"
+
+
+def test_codex_status_event_bypasses_previous_daemon_render(
+    monkeypatch, tmp_path: Path
+):
+    """Codex is event-driven, so a previous fresh cache must not win over the
+    payload from the current state change."""
+    _setup_session_paths(monkeypatch, tmp_path)
+    sid = "codex-session"
+    sdir = tmp_path / "sessions" / sid
+    sdir.mkdir(parents=True)
+    (sdir / "rendered.ansi").write_text("OLD 0/1.0M\n", encoding="utf-8")
+    (sdir / "rendered.meta.json").write_text(json.dumps({
+        "generated_at": time.time(),
+        "stale_after_seconds": 5.0,
+    }), encoding="utf-8")
+    payload = json.dumps({"session_id": sid, "marker": "NEW"}).encode()
+    monkeypatch.setattr(render_thin, "_consume_stdin", lambda: payload)
+    monkeypatch.setenv("CODEX_STATUS_LINE", "1")
+
+    seen = {}
+
+    def fake_inline():
+        seen["stdin"] = sys.stdin.read()
+        return 0
+
+    monkeypatch.setattr(render_thin, "_fallback_inline", fake_inline)
+
+    assert render_thin.render() == 0
+    assert json.loads(seen["stdin"])["marker"] == "NEW"
 
 
 def test_thin_client_ignores_legacy_claude_displacement(monkeypatch, tmp_path: Path, capsys):
@@ -855,6 +885,7 @@ def test_cmdline_matcher_recognizes_every_spawn_shape():
     assert not _d._cmdline_is_our_daemon("python3 somethingelse.py --daemon")
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Windows file identity is not POSIX inode identity")
 def test_release_pidfile_leaves_someone_elses_file_alone(monkeypatch, tmp_path: Path):
     """flock locks an inode, not a path: after unlink+recreate, two daemons
     each hold a lock on different inodes. The exiting one must not delete the

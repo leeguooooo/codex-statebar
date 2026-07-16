@@ -65,7 +65,7 @@ def test_helper_silent_when_git_missing(repo, tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
     out = subprocess.run(
         [sys.executable, "-m", "codex_statebar._git_refresh", str(repo)],
-        env={"PATH": "", "PYTHONPATH": str(SRC_DIR), "HOME": str(tmp_path)},
+        env={**os.environ, "PATH": "", "PYTHONPATH": str(SRC_DIR), "HOME": str(tmp_path)},
         capture_output=True, text=True, timeout=10,
     )
     assert out.returncode == 0

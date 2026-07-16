@@ -249,7 +249,23 @@ def parse_stdin_data() -> Dict[str, Any]:
                 payload = parsed
         except json.JSONDecodeError:
             pass
-    if any(key in payload for key in ("rate_limits", "cost", "_cs_env")):
+    # ``render_thin`` stamps ``_cs_env`` into every persisted payload.  That
+    # marker is shared infrastructure, not proof that the caller is Claude
+    # Code.  Patched Codex payloads also carry it when the daemon replays them,
+    # and misrouting those payloads through the Claude parser drops Codex's
+    # rollout-only quota fields.  A Codex rollout has a stable filename shape;
+    # use that (plus the proposed native payload keys) to keep the two formats
+    # separate without guessing from the model name.
+    transcript = payload.get("rollout_path") or payload.get("transcript_path")
+    transcript_name = Path(str(transcript)).name if transcript else ""
+    codex_keys = {"limits", "context", "reasoning_effort", "thread_id",
+                  "codex_version", "rollout_path"}
+    is_codex_payload = bool(codex_keys.intersection(payload)) or (
+        transcript_name.startswith("rollout-")
+        and transcript_name.endswith(".jsonl")
+    )
+    if (not is_codex_payload
+            and any(key in payload for key in ("rate_limits", "cost", "_cs_env"))):
         previous = sys.stdin
         try:
             sys.stdin = io.StringIO(raw)
@@ -259,10 +275,8 @@ def parse_stdin_data() -> Dict[str, Any]:
 
     from .rollout import collect_status
     result = collect_status(payload)
-    codex_keys = {"limits", "context", "reasoning_effort", "thread_id",
-                  "codex_version", "rollout_path"}
     if (raw and not result.get("rollout_path")
-            and not codex_keys.intersection(payload)):
+            and not is_codex_payload):
         previous = sys.stdin
         try:
             sys.stdin = io.StringIO(raw)

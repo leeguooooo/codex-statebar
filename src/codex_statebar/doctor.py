@@ -8,6 +8,9 @@ import subprocess
 import sys
 
 
+_EXTERNAL_STATUS_MARKER = b"CODEX_STATUS_LINE"
+
+
 def _ansi() -> bool:
     return sys.stdout.isatty() and "NO_COLOR" not in os.environ
 
@@ -19,6 +22,22 @@ def _paint(code: str, text: str) -> str:
 def _line(label: str, value: object, ok: bool = True) -> None:
     mark = _paint("32" if ok else "31", "✓" if ok else "✗")
     print(f"  {mark} {label:<24} {value}")
+
+
+def _binary_contains(path: str, needle: bytes) -> bool:
+    """Scan a binary for a patch marker without loading it all into memory."""
+    overlap = max(0, len(needle) - 1)
+    tail = b""
+    try:
+        with open(path, "rb") as binary:
+            while chunk := binary.read(1024 * 1024):
+                data = tail + chunk
+                if needle in data:
+                    return True
+                tail = data[-overlap:] if overlap else b""
+    except OSError:
+        return False
+    return False
 
 
 def run() -> int:
@@ -53,9 +72,11 @@ def run() -> int:
           f"configured ({SETTINGS_PATH})" if native_ok
           else f"not configured — run: cxs --setup ({SETTINGS_PATH})",
           native_ok)
+    rich_hook = _binary_contains(codex or "", _EXTERNAL_STATUS_MARKER)
     _line("rich command hook",
-          "not provided by stable Codex; cxs/tmux/watch work now",
-          False)
+          "patched Codex external command enabled" if rich_hook
+          else "not provided by stable Codex; cxs/tmux/watch work now",
+          rich_hook)
 
     try:
         from .rollout import collect_status

@@ -1,6 +1,7 @@
 """Tests for `cs preview` — style × theme matrix renderer."""
 
 import io
+import json
 import sys
 from contextlib import redirect_stdout
 
@@ -66,9 +67,25 @@ def test_preview_unknown_style_returns_error():
     assert "unknown style" in out
 
 
-def test_preview_includes_cache_and_cost_segments_in_output():
+def test_preview_includes_cache_and_cost_segments_in_output(
+    tmp_path, monkeypatch
+):
     """v3.3.1 fix: preview must show cache + $ cost so users can see what
     those segments look like across themes."""
+    cache = tmp_path / "last_stdin.json"
+    cache.write_text(json.dumps({
+        "model": {"id": "gpt-test", "display_name": "gpt-test"},
+        "context_window": {
+            "total_input_tokens": 1000,
+            "total_output_tokens": 100,
+            "context_window_size": 200000,
+        },
+        "cost": {"total_cost_usd": 2.18},
+    }), encoding="utf-8")
+    monkeypatch.setattr(preview, "CACHED_STDIN", cache)
+    monkeypatch.setattr(
+        "codex_statebar.core.get_cache_age_text", lambda: "3m24s"
+    )
     rc, out = _run(style_filter="capsule", theme_filter="graphite")
     assert "cache " in out, "preview must render cache segment"
     assert "$" in out, "preview must render cost segment"
