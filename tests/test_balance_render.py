@@ -6,6 +6,11 @@ import pytest
 from codex_statebar import balance_cache, core, progress, styles
 
 
+@pytest.fixture(autouse=True)
+def isolated_balance_cache(tmp_path, monkeypatch):
+    monkeypatch.setattr(balance_cache, "_cache_root", lambda: tmp_path / "balance")
+
+
 def _env(base="https://relay.example", key="sk-x"):
     e = {}
     if base:

@@ -1,11 +1,16 @@
 import json
+import os
 
+import pytest
+
+from codex_statebar import party
 from codex_statebar.config import StatusbarConfig, _BOOL_KEYS, set_value
 from codex_statebar.party import read_party_status, workspace_id
 from codex_statebar.styles import render, render_party_line
 from codex_statebar.themes import get_theme
 
 
+@pytest.mark.skipif(os.name == "nt", reason="fixtures are hashes of POSIX path.resolve output")
 def test_workspace_id_matches_agentparty_fixtures():
     assert workspace_id("/Users/leo/github.com/agentparty") == (
         "agentparty-db745cf4d141394a"
@@ -20,7 +25,8 @@ def test_missing_status_is_silent(tmp_path):
     assert read_party_status("/tmp/no-party", home=tmp_path) is None
 
 
-def test_reads_statusline_cache_and_renders_no_color(tmp_path):
+def test_reads_statusline_cache_and_renders_no_color(tmp_path, monkeypatch):
+    monkeypatch.setattr(party, "_pid_alive", lambda _pid: True)
     cwd = tmp_path / "Agent Party Demo"
     cwd.mkdir()
     state_dir = tmp_path / "state" / workspace_id(cwd)

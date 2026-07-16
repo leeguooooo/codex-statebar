@@ -885,6 +885,7 @@ def test_cmdline_matcher_recognizes_every_spawn_shape():
     assert not _d._cmdline_is_our_daemon("python3 somethingelse.py --daemon")
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Windows file identity is not POSIX inode identity")
 def test_release_pidfile_leaves_someone_elses_file_alone(monkeypatch, tmp_path: Path):
     """flock locks an inode, not a path: after unlink+recreate, two daemons
     each hold a lock on different inodes. The exiting one must not delete the
