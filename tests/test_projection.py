@@ -14,6 +14,8 @@ def _ts(year, month, day, hour, minute=0):
 
 @pytest.fixture
 def use_tz(monkeypatch):
+    if not hasattr(time, "tzset"):
+        pytest.skip("runtime does not support TZ environment overrides")
     old_tz = os.environ.get("TZ")
 
     def apply(name):
