@@ -72,7 +72,7 @@ def run() -> int:
           f"configured ({SETTINGS_PATH})" if native_ok
           else f"not configured — run: cxs --setup ({SETTINGS_PATH})",
           native_ok)
-    rich_hook = bool(codex and _binary_contains(codex, _EXTERNAL_STATUS_MARKER))
+    rich_hook = _binary_contains(codex or "", _EXTERNAL_STATUS_MARKER)
     _line("rich command hook",
           "patched Codex external command enabled" if rich_hook
           else "not provided by stable Codex; cxs/tmux/watch work now",
