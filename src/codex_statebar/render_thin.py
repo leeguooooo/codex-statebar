@@ -317,6 +317,7 @@ def _persist_stdin_bytes(data: bytes, session_id: str) -> None:
 # one daemon serves all windows.
 _SPAWN_MARKER = _CACHE_DIR / "daemon.spawn"
 _SPAWN_DEBOUNCE_S = 30.0
+_SPAWN_MTIME_TOLERANCE_S = 1.0
 
 
 def _spawn_recently_attempted() -> bool:
@@ -330,7 +331,10 @@ def _spawn_recently_attempted() -> bool:
         age = time.time() - _SPAWN_MARKER.stat().st_mtime
     except OSError:
         return False
-    return 0 <= age < _SPAWN_DEBOUNCE_S
+    # Some Windows filesystems can report a just-touched mtime a few
+    # milliseconds ahead of time.time(). Treat that tiny skew as fresh while
+    # still allowing genuinely future timestamps to self-heal.
+    return -_SPAWN_MTIME_TOLERANCE_S <= age < _SPAWN_DEBOUNCE_S
 
 
 def _record_spawn_attempt() -> None:

@@ -247,6 +247,15 @@ def test_spawn_debounce_future_mtime_self_heals(monkeypatch, tmp_path: Path):
     assert len(calls) == 1  # and debounced again
 
 
+def test_spawn_debounce_tolerates_filesystem_clock_rounding(monkeypatch, tmp_path: Path):
+    marker = _patch_marker(monkeypatch, tmp_path)
+    marker.touch()
+    slightly_future = time.time() + 0.25
+    os.utime(marker, (slightly_future, slightly_future))
+
+    assert render_thin._spawn_recently_attempted() is True
+
+
 def test_spawn_attempt_recorded_even_when_spawn_raises(monkeypatch, tmp_path: Path):
     # A failing spawn must still consume its debounce slot — a repeatedly
     # crashing spawn path is exactly the leak we're bounding.
