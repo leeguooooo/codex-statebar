@@ -9,6 +9,43 @@ permissions:
   contents: write
 
 jobs:
+  find-patched-codex:
+    runs-on: ubuntu-latest
+    outputs:
+      source_tag: ${{ steps.find.outputs.source_tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          source_tag=""
+          while IFS= read -r tag; do
+            manifest_dir="$(mktemp -d)"
+            if gh release download "$tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --pattern codex-cxs-manifest.json \
+              --dir "$manifest_dir" >/dev/null 2>&1 &&
+              python3 scripts/codex_build_manifest.py matches \
+                "$manifest_dir/codex-cxs-manifest.json"; then
+              source_tag="$tag"
+              rm -rf "$manifest_dir"
+              break
+            fi
+            rm -rf "$manifest_dir"
+          done < <(
+            gh api --paginate \
+              "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+              --jq '.[].tag_name'
+          )
+          echo "source_tag=$source_tag" >> "$GITHUB_OUTPUT"
+          if [[ -n "$source_tag" ]]; then
+            echo "Reusing patched Codex assets from $source_tag"
+          else
+            echo "No matching patched Codex assets found; a cold build is required"
+          fi
+
   build:
     strategy:
       matrix:
@@ -50,6 +87,8 @@ jobs:
             cxs-${{ matrix.target }}.tar.gz.sha256
 
   build-patched-codex:
+    needs: find-patched-codex
+    if: needs.find-patched-codex.outputs.source_tag == ''
     strategy:
       matrix:
         include:
@@ -80,19 +119,53 @@ jobs:
             codex-cxs-${{ matrix.target }}.tar.gz.sha256
 
   release:
-    needs: [build, build-patched-codex]
+    needs: [find-patched-codex, build, build-patched-codex]
+    if: >-
+      always() &&
+      needs.find-patched-codex.result == 'success' &&
+      needs.build.result == 'success' &&
+      (
+        needs.build-patched-codex.result == 'success' ||
+        (
+          needs.build-patched-codex.result == 'skipped' &&
+          needs.find-patched-codex.outputs.source_tag != ''
+        )
+      )
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           pattern: cxs-*
           merge-multiple: true
           path: dist
       - uses: actions/download-artifact@v4
+        if: needs.find-patched-codex.outputs.source_tag == ''
         with:
           pattern: codex-cxs-*
           merge-multiple: true
           path: dist
+      - name: Reuse matching patched Codex assets
+        if: needs.find-patched-codex.outputs.source_tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_TAG: ${{ needs.find-patched-codex.outputs.source_tag }}
+        run: |
+          gh release download "$SOURCE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'codex-cxs-*.tar.gz' \
+            --pattern 'codex-cxs-*.tar.gz.sha256' \
+            --pattern codex-cxs-manifest.json \
+            --dir dist
+          python3 scripts/codex_build_manifest.py verify \
+            dist/codex-cxs-manifest.json dist
+      - name: Create patched Codex asset manifest
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python3 scripts/codex_build_manifest.py create \
+            dist \
+            --source-tag "$RELEASE_TAG"
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*
