@@ -57,14 +57,49 @@ def _destination() -> Optional[Path]:
     return Path(command).resolve() if command else None
 
 
-def _asset_urls(release: dict, target: str) -> Tuple[Optional[str], Optional[str]]:
-    archive_name = f"cxs-{target}.tar.gz"
+def _asset_urls(
+    release: dict,
+    target: str,
+    binary: str = "cxs",
+) -> Tuple[Optional[str], Optional[str]]:
+    archive_name = f"{binary}-{target}.tar.gz"
     checksum_name = archive_name + ".sha256"
     urls = {
         asset.get("name"): asset.get("browser_download_url")
         for asset in release.get("assets", []) if isinstance(asset, dict)
     }
     return urls.get(archive_name), urls.get(checksum_name)
+
+
+def _verified_archive(release: dict, target: str, binary: str) -> bytes:
+    archive_url, checksum_url = _asset_urls(release, target, binary)
+    if not archive_url or not checksum_url:
+        tag = str(release.get("tag_name") or "latest")
+        raise ValueError(f"Release {tag} has no {binary} asset for {target}.")
+    archive = _fetch(archive_url)
+    checksum_text = _fetch(checksum_url).decode("utf-8", "replace")
+    expected = checksum_text.split()[0].lower()
+    actual = hashlib.sha256(archive).hexdigest()
+    if expected != actual:
+        raise ValueError(f"Downloaded {binary} release failed SHA-256 verification.")
+    return archive
+
+
+def _extract_member(archive: bytes, member: str, destination: Path) -> None:
+    with tempfile.TemporaryDirectory(prefix=f"{member}-upgrade-") as tmp:
+        archive_path = Path(tmp) / "release.tar.gz"
+        archive_path.write_bytes(archive)
+        with tarfile.open(archive_path, "r:gz") as bundle:
+            try:
+                source = bundle.extractfile(member)
+            except KeyError as exc:
+                raise ValueError(f"Release archive does not contain {member}.") from exc
+            if source is None:
+                raise ValueError(f"Release archive does not contain a file named {member}.")
+            staged = destination.with_name(destination.name + ".new")
+            with source, staged.open("wb") as output:
+                shutil.copyfileobj(source, output)
+        staged.chmod(staged.stat().st_mode | stat.S_IXUSR)
 
 
 def upgrade_current_install() -> Tuple[bool, str]:
@@ -82,33 +117,33 @@ def upgrade_current_install() -> Tuple[bool, str]:
         release = json.loads(_fetch(LATEST_API))
         tag = str(release.get("tag_name") or "")
         from . import __version__
-        if tag and _version_tuple(tag) <= _version_tuple(__version__):
-            return True, f"cxs {__version__} is already current ({tag})."
-        archive_url, checksum_url = _asset_urls(release, target)
-        if not archive_url or not checksum_url:
-            return False, f"Release {tag or 'latest'} has no asset for {target}."
-        archive = _fetch(archive_url)
-        checksum_text = _fetch(checksum_url).decode("utf-8", "replace")
-        expected = checksum_text.split()[0].lower()
-        actual = hashlib.sha256(archive).hexdigest()
-        if expected != actual:
-            return False, "Downloaded release failed SHA-256 verification."
-
-        with tempfile.TemporaryDirectory(prefix="cxs-upgrade-") as tmp:
-            archive_path = Path(tmp) / "release.tar.gz"
-            archive_path.write_bytes(archive)
-            with tarfile.open(archive_path, "r:gz") as bundle:
-                names = bundle.getnames()
-                wanted = "cxs.exe" if os.name == "nt" else "cxs"
-                if wanted not in names:
-                    return False, f"Release archive does not contain {wanted}."
-                bundle.extract(wanted, path=tmp)
-            replacement = Path(tmp) / wanted
-            replacement.chmod(replacement.stat().st_mode | stat.S_IXUSR)
-            staged = destination.with_name(destination.name + ".new")
-            shutil.copy2(replacement, staged)
-            os.replace(staged, destination)
-        return True, f"Upgraded cxs to {tag or 'latest'} at {destination}."
+        if tag and _version_tuple(tag) < _version_tuple(__version__):
+            return True, (
+                f"Installed cxs {__version__} is newer than latest release {tag}; "
+                "nothing changed."
+            )
+        same_release = bool(
+            tag and _version_tuple(tag) == _version_tuple(__version__)
+        )
+        binaries = [("cxs", "cxs.exe" if os.name == "nt" else "cxs", destination)]
+        if os.name != "nt":
+            binaries.append(
+                ("codex-cxs", "codex-cxs", destination.with_name("codex-cxs"))
+            )
+        archives = {
+            binary: _verified_archive(release, target, binary)
+            for binary, _member, _destination_path in binaries
+        }
+        for binary, member, destination_path in binaries:
+            _extract_member(archives[binary], member, destination_path)
+        # Replace the patched Codex first and cxs last. All downloads,
+        # checksums, and archive members have already been validated.
+        for _binary, _member, destination_path in reversed(binaries):
+            staged = destination_path.with_name(destination_path.name + ".new")
+            os.replace(staged, destination_path)
+        names = " and ".join(binary for binary, _member, _path in binaries)
+        action = "Reinstalled" if same_release else "Upgraded"
+        return True, f"{action} {names} from {tag or 'latest'} beside {destination}."
     except Exception as exc:
         return False, f"Upgrade failed: {type(exc).__name__}: {exc}"
 

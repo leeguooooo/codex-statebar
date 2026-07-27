@@ -42,8 +42,9 @@
     <h2>安装</h2>
     <pre>curl -fsSL https://raw.githubusercontent.com/leeguooooo/codex-statebar/main/install.sh | sh
 cxs doctor</pre>
-    <p>一键安装会校验 SHA-256，安装 <code>cxs</code> 与补丁版 <code>codex-cxs</code>，把用户级 <code>codex</code> 指向补丁版，并通过 <code>cxs --setup</code> 接入状态栏。已有的 <code>~/.local/bin/codex</code> 会先备份；ChatGPT App 内置二进制不会被修改。</p>
-    <p>发布物由 GitHub Actions 为 macOS / Linux 构建为独立二进制；用户端不需要 Python 或 Rust。若只想安装而不替换用户级 <code>codex</code>，设置 <code>CODEX_STATEBAR_INSTALL_CODEX_DEFAULT=0</code>。</p>
+    <p>一键安装会校验 SHA-256，安装 <code>cxs</code>、补丁版 <code>codex-cxs</code> 与用户级 <code>codex</code> 启动器，并通过 <code>cxs --setup</code> 接入状态栏。已有的 <code>~/.local/bin/codex</code> 会先备份；ChatGPT App 内置二进制不会被修改。</p>
+    <p>启动器会比较 PATH 中的官方 Codex 和补丁版：补丁版版本相同或更新时运行 <code>codex-cxs</code>；官方版更新时改为运行官方版，并提示嵌入式状态栏暂时停用。这样官方更新不会被旧补丁版静默遮住。<code>cxs upgrade</code> 会一起校验并更新 <code>cxs</code> 与 <code>codex-cxs</code>。</p>
+    <p>发布物由 GitHub Actions 为 macOS / Linux 构建为独立二进制；用户端不需要 Python 或 Rust。若不想安装用户级启动器，设置 <code>CODEX_STATEBAR_INSTALL_CODEX_DEFAULT=0</code>。</p>
   </section>
 
   <section>
@@ -66,14 +67,14 @@ cxs doctor</pre>
 
   <section>
     <h2>嵌入 Codex TUI</h2>
-    <aside>Codex 0.144.1 稳定版还不能执行外部状态栏命令。本项目提供一个小型 Rust TUI 补丁，让 <code>cxs render</code> 的 ANSI 输出直接出现在输入框下方；Python 继续负责成熟的主题与指标计算。</aside>
+    <aside>Codex 0.145.0 稳定版还不能执行外部状态栏命令。本项目提供一个小型 Rust TUI 补丁，让 <code>cxs render</code> 的 ANSI 输出直接出现在输入框下方；Python 继续负责成熟的主题与指标计算。</aside>
     <p>先构建补丁版 Codex，再写入 command 模式配置：</p>
     <pre>./scripts/build-patched-codex.sh
 cxs --setup
 ./dist/codex-cxs</pre>
     <p><code>cxs --setup</code> 会写入 <code>[tui].status_line = ["command", "…/cxs", "render"]</code>。原生字段模式仍可用；只有首项为 <code>command</code> 时才调用外部渲染器。补丁包含异步执行、更新合并、超时保护、会话隔离与 ANSI 色彩解析。</p>
     <p>补丁版 Codex 会读取外部命令最多三行输出，并按实际行数自动增高底部状态区，因此 <code>cxs</code> 的配额、项目与模式三行布局可直接嵌入 TUI。三行上限避免异常命令无限撑高界面。</p>
-    <p>上游仍在讨论正式扩展点：<a href="https://github.com/openai/codex/issues/17827">openai/codex#17827</a>。在官方支持落地前，构建脚本固定使用 <code>rust-v0.144.1</code>，避免补丁静默套到不兼容版本。</p>
+    <p>上游仍在讨论正式扩展点：<a href="https://github.com/openai/codex/issues/17827">openai/codex#17827</a>。在官方支持落地前，构建脚本固定使用 <code>rust-v0.145.0</code>，避免补丁静默套到不兼容版本。</p>
     <p>新建 Codex CLI 后，需要至少发送一条消息，Codex 才会创建可读取的 rollout。若尚未发送消息，<code>cxs</code> 会提示先完成首轮交互；它不会改用同目录的 Desktop 会话。</p>
   </section>
 
@@ -89,8 +90,8 @@ cxs --setup
 python -m pytest -q
 python -m compileall -q src
 cxs --no-color
-patch --dry-run -d /path/to/codex -p1 &lt; patches/codex-0.144.1-external-status-line.patch
-patch --dry-run -d /path/to/codex -p1 &lt; patches/codex-0.144.1-multiline-status-line.patch
+patch --dry-run -d /path/to/codex -p1 &lt; patches/codex-0.145.0-external-status-line.patch
+patch --dry-run -d /path/to/codex -p1 &lt; patches/codex-0.145.0-multiline-status-line.patch
 cargo check -p codex-tui</pre>
   </section>
 </main></body>

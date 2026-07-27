@@ -1,4 +1,4 @@
-# Codex CLI 0.144.1: external command status line
+# Codex CLI 0.145.0: external command status line
 # Apply from the root of the openai/codex source tree.
 # Configuration: [tui] status_line = ["command", "cxs", "render"]
 

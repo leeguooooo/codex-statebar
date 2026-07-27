@@ -1,9 +1,21 @@
-from codex_statebar import doctor, rollout, setup
+from pathlib import Path
+
+from codex_statebar import codex_launcher, doctor, rollout, setup
 
 
 def test_doctor_reports_codex_surfaces(monkeypatch, capsys):
     monkeypatch.setattr(setup, "is_statusline_configured", lambda: True)
     monkeypatch.setattr(doctor, "_binary_contains", lambda *_args: True)
+    patched = codex_launcher.CodexBinary(
+        Path("/tmp/codex-cxs"), "codex-cli 0.145.0", (0, 145, 0, 1), True
+    )
+    monkeypatch.setattr(
+        codex_launcher,
+        "inspect_install",
+        lambda: codex_launcher.LaunchDecision(
+            patched, patched, None, "patched Codex is current"
+        ),
+    )
     monkeypatch.setattr(rollout, "collect_status", lambda: {
         "rollout_path": "/tmp/rollout.jsonl", "model_id": "gpt-test",
         "context_used_pct": 25, "rate_limit_pct": 10,
@@ -14,6 +26,7 @@ def test_doctor_reports_codex_surfaces(monkeypatch, capsys):
     assert "native [tui] fallback" in output
     assert "rich command hook" in output
     assert "patched Codex external command enabled" in output
+    assert "Codex version routing" in output
     assert "gpt-test" in output
 
 

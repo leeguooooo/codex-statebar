@@ -202,6 +202,10 @@ def _run_upgrade_subcommand():
 
 def main():
     """Main CLI entry point"""
+    if len(sys.argv) >= 2 and sys.argv[1] == "_launch-codex":
+        from .codex_launcher import launch
+        return launch(sys.argv[2:])
+
     # Render fast-path: `cxs render` is what Codex CLI calls 60×/min when
     # the user has switched to daemon mode (`cxs setup --fast`). It must
     # avoid heavy imports — argparse + the rest of the CLI only loads on
@@ -328,6 +332,7 @@ def main():
             return 0
 
     parser = argparse.ArgumentParser(
+        prog=os.path.basename(sys.argv[0]) or "cxs",
         description="Codex Statebar - Lightweight token usage monitor",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""

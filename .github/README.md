@@ -15,9 +15,11 @@ curl -fsSL https://raw.githubusercontent.com/leeguooooo/codex-statebar/main/inst
 cxs doctor
 ```
 
-安装脚本会校验 SHA-256，安装 `cxs` 和补丁版 `codex-cxs`，把用户级 `codex` 指向补丁版，再运行 `cxs --setup` 接入状态栏。已有的 `~/.local/bin/codex` 会先备份；ChatGPT App 内置二进制不会被修改。
+安装脚本会校验 SHA-256，安装 `cxs` 和补丁版 `codex-cxs`，再安装一个用户级 `codex` 启动器。已有的 `~/.local/bin/codex` 会先备份；ChatGPT App 内置二进制不会被修改。
 
-GitHub Actions 为 macOS 和 Linux 构建独立二进制，用户端不需要 Python 或 Rust。若只想安装 `cxs`，不替换用户级 `codex`：
+启动器会比较 PATH 中的官方 Codex 和补丁版：补丁版版本相同或更新时运行 `codex-cxs`；官方版更新时改为运行官方版，并提示嵌入式状态栏暂时停用。这样官方更新不会被旧补丁版静默遮住。`cxs upgrade` 会一起校验并更新 `cxs` 与 `codex-cxs`。
+
+GitHub Actions 为 macOS 和 Linux 构建独立二进制，用户端不需要 Python 或 Rust。若不想安装用户级启动器：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/leeguooooo/codex-statebar/main/install.sh \
@@ -44,7 +46,7 @@ curl -fsSL https://raw.githubusercontent.com/leeguooooo/codex-statebar/main/inst
 
 ## 嵌入 Codex TUI
 
-Codex 0.144.1 稳定版还不能执行外部状态栏命令。本项目包含一个 Rust TUI 补丁，把 `cxs render` 的 ANSI 输出显示在输入框下方；Python 负责主题和指标计算。
+Codex 0.145.0 稳定版还不能执行外部状态栏命令。本项目包含一个 Rust TUI 补丁，把 `cxs render` 的 ANSI 输出显示在输入框下方；Python 负责主题和指标计算。
 
 一键安装会安装预构建的补丁版。需要从源码构建时：
 
@@ -63,7 +65,7 @@ status_line = ["command", "…/cxs", "render"]
 
 只有首项为 `command` 时，Codex 才会调用外部渲染器。补丁包含异步执行、更新合并、超时保护、会话隔离和 ANSI 色彩解析。它最多读取三行输出，并按实际行数调整底部状态区高度。
 
-上游扩展点仍在讨论：[openai/codex#17827](https://github.com/openai/codex/issues/17827)。构建脚本固定使用 `rust-v0.144.1`，避免补丁套到不兼容版本。
+上游扩展点仍在讨论：[openai/codex#17827](https://github.com/openai/codex/issues/17827)。构建脚本固定使用 `rust-v0.145.0`，避免补丁套到不兼容版本。
 
 新建 Codex CLI 后，先发送一条消息，让 Codex 创建 rollout。若还没有 rollout，`cxs` 会提示完成首轮交互，不会改用同目录的 Desktop 会话。
 
@@ -80,8 +82,8 @@ python -m pip install -e . pytest
 python -m pytest -q
 python -m compileall -q src
 cxs --no-color
-patch --dry-run -d /path/to/codex -p1 < patches/codex-0.144.1-external-status-line.patch
-patch --dry-run -d /path/to/codex -p1 < patches/codex-0.144.1-multiline-status-line.patch
+patch --dry-run -d /path/to/codex -p1 < patches/codex-0.145.0-external-status-line.patch
+patch --dry-run -d /path/to/codex -p1 < patches/codex-0.145.0-multiline-status-line.patch
 cargo check -p codex-tui
 ```
 

@@ -1,0 +1,87 @@
+import os
+from pathlib import Path
+
+from codex_statebar import codex_launcher
+
+
+def _binary(path: Path, version: str) -> Path:
+    path.write_text(f"#!/bin/sh\necho 'codex-cli {version}'\n", encoding="utf-8")
+    path.chmod(0o755)
+    return path
+
+
+def test_newer_official_codex_wins_over_patched_build(tmp_path):
+    managed = tmp_path / "managed"
+    official_dir = tmp_path / "official"
+    managed.mkdir()
+    official_dir.mkdir()
+    _binary(managed / "codex-cxs", "0.144.1")
+    _binary(official_dir / "codex", "0.145.0")
+    _binary(managed / "codex", "9.9.9")
+
+    decision = codex_launcher.inspect_install(
+        managed_dir=managed,
+        path_value=os.pathsep.join((str(managed), str(official_dir))),
+    )
+
+    assert decision.selected is decision.official
+    assert decision.selected.path == official_dir / "codex"
+    assert "newer" in decision.reason
+
+
+def test_current_patched_codex_wins_over_older_official_build(tmp_path):
+    managed = tmp_path / "managed"
+    official_dir = tmp_path / "official"
+    managed.mkdir()
+    official_dir.mkdir()
+    _binary(managed / "codex-cxs", "0.145.0")
+    _binary(official_dir / "codex", "0.144.4")
+
+    decision = codex_launcher.inspect_install(
+        managed_dir=managed,
+        path_value=str(official_dir),
+    )
+
+    assert decision.selected is decision.patched
+    assert decision.selected.path == managed / "codex-cxs"
+
+
+def test_launcher_falls_back_to_official_when_patched_binary_is_missing(tmp_path):
+    managed = tmp_path / "managed"
+    official_dir = tmp_path / "official"
+    managed.mkdir()
+    official_dir.mkdir()
+    _binary(official_dir / "codex", "0.145.0")
+
+    decision = codex_launcher.inspect_install(
+        managed_dir=managed,
+        path_value=str(official_dir),
+    )
+
+    assert decision.selected is decision.official
+    assert "not installed" in decision.reason
+
+
+def test_stable_release_sorts_after_same_version_prerelease():
+    assert codex_launcher._version_key("codex-cli 0.146.0") > (
+        codex_launcher._version_key("codex-cli 0.146.0-alpha.3")
+    )
+
+
+def test_chatgpt_app_embedded_codex_is_not_selected(tmp_path):
+    managed = tmp_path / "managed"
+    official_dir = tmp_path / "official"
+    app_dir = tmp_path / "ChatGPT.app" / "Contents" / "Resources"
+    managed.mkdir()
+    official_dir.mkdir()
+    app_dir.mkdir(parents=True)
+    _binary(managed / "codex-cxs", "0.144.1")
+    _binary(official_dir / "codex", "0.144.4")
+    _binary(app_dir / "codex", "0.146.0-alpha.3")
+
+    decision = codex_launcher.inspect_install(
+        managed_dir=managed,
+        path_value=os.pathsep.join((str(app_dir), str(official_dir))),
+    )
+
+    assert decision.official.path == official_dir / "codex"

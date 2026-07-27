@@ -53,6 +53,8 @@ chmod +x "$INSTALL_DIR/cxs" "$INSTALL_DIR/codex-cxs"
 if [ "$INSTALL_CODEX_DEFAULT" = "1" ]; then
   codex_path="$INSTALL_DIR/codex"
   if [ -L "$codex_path" ] && [ "$(readlink "$codex_path")" = "codex-cxs" ]; then
+    unlink "$codex_path"
+  elif [ -f "$codex_path" ] && grep -q "managed by codex-statebar" "$codex_path"; then
     :
   else
     if [ -e "$codex_path" ] || [ -L "$codex_path" ]; then
@@ -60,8 +62,18 @@ if [ "$INSTALL_CODEX_DEFAULT" = "1" ]; then
       mv "$codex_path" "$backup"
       echo "Backed up existing user-level codex to $backup"
     fi
-    ln -s "codex-cxs" "$codex_path"
   fi
+  launcher="$tmp/codex"
+  printf '%s\n' \
+    '#!/bin/sh' \
+    '# managed by codex-statebar' \
+    'set -eu' \
+    'bin_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)' \
+    'export CODEX_STATEBAR_MANAGED_DIR="$bin_dir"' \
+    'exec "$bin_dir/cxs" _launch-codex "$@"' > "$launcher"
+  chmod +x "$launcher"
+  cp "$launcher" "$codex_path"
+  chmod +x "$codex_path"
 fi
 
 if [ "$SKIP_SETUP" != "1" ]; then
@@ -71,7 +83,7 @@ fi
 echo "Installed cxs to $INSTALL_DIR/cxs"
 echo "Installed patched Codex to $INSTALL_DIR/codex-cxs"
 if [ "$INSTALL_CODEX_DEFAULT" = "1" ]; then
-  echo "Activated patched Codex as $INSTALL_DIR/codex"
+  echo "Installed version-aware Codex launcher to $INSTALL_DIR/codex"
 fi
 case ":$PATH:" in
   *":$INSTALL_DIR:"*) ;;

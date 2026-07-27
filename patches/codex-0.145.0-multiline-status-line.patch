@@ -1,5 +1,5 @@
-# Codex CLI 0.144.1: multi-row external command status line
-# Apply after codex-0.144.1-external-status-line.patch from the source root.
+# Codex CLI 0.145.0: multi-row external command status line
+# Apply after codex-0.145.0-external-status-line.patch from the source root.
 # External command stdout is capped at three rows and grows the footer.
 
 --- a/codex-rs/tui/src/app/event_dispatch.rs

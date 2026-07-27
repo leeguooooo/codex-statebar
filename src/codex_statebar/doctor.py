@@ -66,13 +66,47 @@ def run() -> int:
     else:
         _line("Codex CLI", "not on PATH", False)
 
+    from .codex_launcher import inspect_install
+    launch_decision = inspect_install()
+    patched = launch_decision.patched
+    official = launch_decision.official
+    _line(
+        "patched Codex",
+        f"{patched.version_text} ({patched.path})" if patched else "not installed",
+        patched is not None,
+    )
+    _line(
+        "official Codex",
+        f"{official.version_text} ({official.path})" if official else "not found on PATH",
+        official is not None,
+    )
+    selected = launch_decision.selected
+    routing_ok = not (
+        official
+        and patched
+        and official.version > patched.version
+        and codex
+        and _binary_contains(codex, _EXTERNAL_STATUS_MARKER)
+    )
+    _line(
+        "Codex version routing",
+        (
+            f"{launch_decision.reason}; launcher selects "
+            f"{selected.version_text} ({selected.path})"
+            if selected
+            else launch_decision.reason
+        ),
+        routing_ok,
+    )
+
     from .setup import SETTINGS_PATH, is_statusline_configured
     native_ok = is_statusline_configured()
     _line("native [tui] fallback",
           f"configured ({SETTINGS_PATH})" if native_ok
           else f"not configured — run: cxs --setup ({SETTINGS_PATH})",
           native_ok)
-    rich_hook = _binary_contains(codex or "", _EXTERNAL_STATUS_MARKER)
+    rich_hook_path = str(selected.path) if selected else (codex or "")
+    rich_hook = _binary_contains(rich_hook_path, _EXTERNAL_STATUS_MARKER)
     _line("rich command hook",
           "patched Codex external command enabled" if rich_hook
           else "not provided by stable Codex; cxs/tmux/watch work now",
