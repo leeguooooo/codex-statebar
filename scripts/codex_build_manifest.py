@@ -88,20 +88,33 @@ def create_manifest(root: Path, assets_dir: Path, source_tag: str) -> dict[str, 
     }
 
 
-def verify_manifest(root: Path, manifest: dict[str, Any], assets_dir: Path) -> None:
+def verify_manifest_metadata(root: Path, manifest: dict[str, Any]) -> None:
     if manifest.get("schema") != SCHEMA_VERSION:
         raise ValueError("unsupported patched Codex manifest schema")
     if manifest.get("fingerprint") != build_fingerprint(root):
         raise ValueError("patched Codex source fingerprint does not match")
     if manifest.get("codex_version") != codex_version(root):
         raise ValueError("patched Codex version does not match")
+    if not isinstance(manifest.get("source_tag"), str) or not manifest["source_tag"]:
+        raise ValueError("patched Codex source tag is missing")
 
-    expected_names = asset_names()
     assets = manifest.get("assets")
-    if not isinstance(assets, dict) or sorted(assets) != sorted(expected_names):
+    if not isinstance(assets, dict) or sorted(assets) != sorted(asset_names()):
         raise ValueError("patched Codex asset list is incomplete")
+    for name, digest in assets.items():
+        if (
+            not isinstance(digest, str)
+            or len(digest) != 64
+            or any(char not in "0123456789abcdef" for char in digest)
+        ):
+            raise ValueError(f"invalid checksum in manifest: {name}")
 
-    for name in expected_names:
+
+def verify_manifest(root: Path, manifest: dict[str, Any], assets_dir: Path) -> None:
+    verify_manifest_metadata(root, manifest)
+    assets = manifest.get("assets")
+    assert isinstance(assets, dict)
+    for name in asset_names():
         asset = assets_dir / name
         if not asset.is_file():
             raise ValueError(f"missing patched Codex asset: {name}")
@@ -150,12 +163,7 @@ def main() -> int:
             print(build_fingerprint(root))
         elif args.command == "matches":
             manifest = read_manifest(args.manifest)
-            if (
-                manifest.get("schema") != SCHEMA_VERSION
-                or manifest.get("fingerprint") != build_fingerprint(root)
-                or manifest.get("codex_version") != codex_version(root)
-            ):
-                return 1
+            verify_manifest_metadata(root, manifest)
         elif args.command == "create":
             manifest = create_manifest(root, args.assets_dir, args.source_tag)
             output = args.assets_dir / MANIFEST_NAME

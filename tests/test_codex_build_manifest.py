@@ -71,6 +71,18 @@ def test_manifest_rejects_corrupt_asset(tmp_path: Path) -> None:
         manifest_module.verify_manifest(root, manifest, assets_dir)
 
 
+def test_manifest_metadata_rejects_incomplete_assets(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    assets_dir = tmp_path / "assets"
+    write_inputs(root)
+    write_assets(assets_dir)
+    manifest = manifest_module.create_manifest(root, assets_dir, "v0.1.1")
+    manifest["assets"].pop(manifest_module.asset_names()[0])
+
+    with pytest.raises(ValueError, match="asset list"):
+        manifest_module.verify_manifest_metadata(root, manifest)
+
+
 def test_read_manifest_requires_object(tmp_path: Path) -> None:
     path = tmp_path / "manifest.json"
     path.write_text(json.dumps([]))

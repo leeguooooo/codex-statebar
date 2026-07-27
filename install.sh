@@ -25,8 +25,9 @@ trap 'rm -rf "$tmp"' EXIT INT TERM
 
 verify_asset() {
   asset="$1"
-  curl -fsSL "${base}/${asset}" -o "$tmp/$asset"
-  curl -fsSL "${base}/${asset}.sha256" -o "$tmp/$asset.sha256"
+  asset_base="$2"
+  curl -fsSL "${asset_base}/${asset}" -o "$tmp/$asset"
+  curl -fsSL "${asset_base}/${asset}.sha256" -o "$tmp/$asset.sha256"
 
   if command -v sha256sum >/dev/null 2>&1; then
     (cd "$tmp" && sha256sum -c "$asset.sha256")
@@ -42,8 +43,27 @@ verify_asset() {
 
 cxs_asset="cxs-${target}.tar.gz"
 codex_asset="codex-cxs-${target}.tar.gz"
-verify_asset "$cxs_asset"
-verify_asset "$codex_asset"
+codex_base="${CODEX_STATEBAR_CODEX_RELEASE_BASE:-}"
+if [ -z "$codex_base" ]; then
+  if [ -n "${CODEX_STATEBAR_RELEASE_BASE:-}" ]; then
+    codex_base="$base"
+  else
+    manifest="$tmp/codex-cxs-manifest.json"
+    if curl -fsSL "${base}/codex-cxs-manifest.json" -o "$manifest"; then
+      source_tag="$(
+        sed -n \
+          's/^[[:space:]]*"source_tag":[[:space:]]*"\([^"]*\)".*/\1/p' \
+          "$manifest" | head -n 1
+      )"
+      if [ -n "$source_tag" ]; then
+        codex_base="https://github.com/${REPO}/releases/download/${source_tag}"
+      fi
+    fi
+    codex_base="${codex_base:-$base}"
+  fi
+fi
+verify_asset "$cxs_asset" "$base"
+verify_asset "$codex_asset" "$codex_base"
 
 mkdir -p "$INSTALL_DIR"
 tar -xzf "$tmp/$cxs_asset" -C "$INSTALL_DIR"

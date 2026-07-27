@@ -153,13 +153,12 @@ jobs:
         run: |
           gh release download "$SOURCE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
-            --pattern 'codex-cxs-*.tar.gz' \
-            --pattern 'codex-cxs-*.tar.gz.sha256' \
             --pattern codex-cxs-manifest.json \
             --dir dist
-          python3 scripts/codex_build_manifest.py verify \
-            dist/codex-cxs-manifest.json dist
+          python3 scripts/codex_build_manifest.py matches \
+            dist/codex-cxs-manifest.json
       - name: Create patched Codex asset manifest
+        if: needs.find-patched-codex.outputs.source_tag == ''
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |

@@ -17,6 +17,7 @@ from typing import Optional, Tuple
 
 REPO = "leeguooooo/codex-statebar"
 LATEST_API = f"https://api.github.com/repos/{REPO}/releases/latest"
+RELEASE_TAG_API = f"https://api.github.com/repos/{REPO}/releases/tags"
 TIMEOUT = 15
 
 
@@ -85,6 +86,27 @@ def _verified_archive(release: dict, target: str, binary: str) -> bytes:
     return archive
 
 
+def _asset_url(release: dict, name: str) -> Optional[str]:
+    for asset in release.get("assets", []):
+        if isinstance(asset, dict) and asset.get("name") == name:
+            value = asset.get("browser_download_url")
+            return value if isinstance(value, str) else None
+    return None
+
+
+def _patched_codex_release(release: dict) -> dict:
+    manifest_url = _asset_url(release, "codex-cxs-manifest.json")
+    if not manifest_url:
+        return release
+    manifest = json.loads(_fetch(manifest_url))
+    source_tag = manifest.get("source_tag")
+    if not isinstance(source_tag, str) or not source_tag:
+        raise ValueError("Patched Codex manifest has no source_tag.")
+    if source_tag == release.get("tag_name"):
+        return release
+    return json.loads(_fetch(f"{RELEASE_TAG_API}/{source_tag}"))
+
+
 def _extract_member(archive: bytes, member: str, destination: Path) -> None:
     with tempfile.TemporaryDirectory(prefix=f"{member}-upgrade-") as tmp:
         archive_path = Path(tmp) / "release.tar.gz"
@@ -126,12 +148,18 @@ def upgrade_current_install() -> Tuple[bool, str]:
             tag and _version_tuple(tag) == _version_tuple(__version__)
         )
         binaries = [("cxs", "cxs.exe" if os.name == "nt" else "cxs", destination)]
+        patched_release = release
         if os.name != "nt":
+            patched_release = _patched_codex_release(release)
             binaries.append(
                 ("codex-cxs", "codex-cxs", destination.with_name("codex-cxs"))
             )
         archives = {
-            binary: _verified_archive(release, target, binary)
+            binary: _verified_archive(
+                patched_release if binary == "codex-cxs" else release,
+                target,
+                binary,
+            )
             for binary, _member, _destination_path in binaries
         }
         for binary, member, destination_path in binaries:

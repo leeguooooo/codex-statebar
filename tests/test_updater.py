@@ -106,6 +106,70 @@ def test_upgrade_replaces_cxs_and_patched_codex_together(tmp_path, monkeypatch):
     assert "Reinstalled cxs and codex-cxs" in message
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Windows releases do not ship codex-cxs")
+def test_upgrade_follows_patched_codex_source_manifest(tmp_path, monkeypatch):
+    monkeypatch.setattr(codex_statebar, "__version__", "0.1.2", raising=False)
+
+    def archive(member, data):
+        payload = io.BytesIO()
+        with tarfile.open(fileobj=payload, mode="w:gz") as bundle:
+            info = tarfile.TarInfo(member)
+            info.size = len(data)
+            bundle.addfile(info, io.BytesIO(data))
+        return payload.getvalue()
+
+    cxs_archive = archive("cxs", b"new-cxs")
+    codex_archive = archive("codex-cxs", b"baseline-codex")
+    latest = {
+        "tag_name": "v0.1.2",
+        "assets": [
+            {"name": "cxs-test.tar.gz", "browser_download_url": "cxs-archive"},
+            {
+                "name": "cxs-test.tar.gz.sha256",
+                "browser_download_url": "cxs-checksum",
+            },
+            {
+                "name": "codex-cxs-manifest.json",
+                "browser_download_url": "manifest",
+            },
+        ],
+    }
+    baseline = {
+        "tag_name": "v0.1.1",
+        "assets": [
+            {
+                "name": "codex-cxs-test.tar.gz",
+                "browser_download_url": "codex-archive",
+            },
+            {
+                "name": "codex-cxs-test.tar.gz.sha256",
+                "browser_download_url": "codex-checksum",
+            },
+        ],
+    }
+    responses = {
+        updater.LATEST_API: json_bytes(latest),
+        "manifest": json_bytes({"source_tag": "v0.1.1"}),
+        f"{updater.RELEASE_TAG_API}/v0.1.1": json_bytes(baseline),
+        "cxs-archive": cxs_archive,
+        "cxs-checksum": hashlib.sha256(cxs_archive).hexdigest().encode(),
+        "codex-archive": codex_archive,
+        "codex-checksum": hashlib.sha256(codex_archive).hexdigest().encode(),
+    }
+    cxs = tmp_path / "cxs"
+    cxs.write_bytes(b"old-cxs")
+    (tmp_path / "codex-cxs").write_bytes(b"old-codex")
+    monkeypatch.setattr(updater, "_target", lambda: "test")
+    monkeypatch.setattr(updater, "_destination", lambda: cxs)
+    monkeypatch.setattr(updater, "_fetch", responses.__getitem__)
+
+    ok, message = updater.upgrade_current_install()
+
+    assert ok is True, message
+    assert cxs.read_bytes() == b"new-cxs"
+    assert (tmp_path / "codex-cxs").read_bytes() == b"baseline-codex"
+
+
 def json_bytes(value):
     import json
     return json.dumps(value).encode()
