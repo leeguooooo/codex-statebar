@@ -1,7 +1,15 @@
 import os
 from pathlib import Path
 
+import pytest
+
 from codex_statebar import codex_launcher
+
+
+pytestmark = pytest.mark.skipif(
+    os.name == "nt",
+    reason="The version-aware Codex launcher is installed on macOS/Linux only",
+)
 
 
 def _binary(path: Path, version: str) -> Path:

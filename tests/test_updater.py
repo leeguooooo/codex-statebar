@@ -1,8 +1,10 @@
 import io
 import hashlib
+import os
 import tarfile
 
 import codex_statebar
+import pytest
 from codex_statebar import updater
 
 
@@ -47,6 +49,7 @@ def test_upgrade_rejects_bad_checksum(tmp_path, monkeypatch):
     assert "SHA-256" in message
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Windows releases do not ship codex-cxs")
 def test_upgrade_replaces_cxs_and_patched_codex_together(tmp_path, monkeypatch):
     monkeypatch.setattr(codex_statebar, "__version__", "0.1.1", raising=False)
 
