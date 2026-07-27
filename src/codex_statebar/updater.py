@@ -7,6 +7,7 @@ import json
 import os
 import platform
 import shutil
+import ssl
 import stat
 import sys
 import tarfile
@@ -19,6 +20,11 @@ REPO = "leeguooooo/codex-statebar"
 LATEST_API = f"https://api.github.com/repos/{REPO}/releases/latest"
 RELEASE_TAG_API = f"https://api.github.com/repos/{REPO}/releases/tags"
 TIMEOUT = 15
+SYSTEM_CA_FILES = (
+    Path("/etc/ssl/cert.pem"),
+    Path("/etc/ssl/certs/ca-certificates.crt"),
+    Path("/etc/pki/tls/certs/ca-bundle.crt"),
+)
 
 
 def _target() -> Optional[str]:
@@ -32,10 +38,21 @@ def _target() -> Optional[str]:
     return f"{os_name}-{arch}"
 
 
+def _ssl_context() -> ssl.SSLContext:
+    for candidate in SYSTEM_CA_FILES:
+        if candidate.is_file():
+            return ssl.create_default_context(cafile=str(candidate))
+    return ssl.create_default_context()
+
+
 def _fetch(url: str) -> bytes:
     request = urllib.request.Request(
         url, headers={"User-Agent": "codex-statebar-updater"})
-    with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
+    with urllib.request.urlopen(
+        request,
+        timeout=TIMEOUT,
+        context=_ssl_context(),
+    ) as response:
         return response.read()
 
 

@@ -21,6 +21,23 @@ def test_asset_urls_select_target_and_checksum():
     assert updater._asset_urls(release, "macos-arm64") == ("a", "b")
 
 
+def test_ssl_context_uses_system_ca_bundle(tmp_path, monkeypatch):
+    ca_file = tmp_path / "cert.pem"
+    ca_file.write_text("test certificate bundle")
+    calls = []
+    monkeypatch.setattr(updater, "SYSTEM_CA_FILES", (ca_file,))
+    monkeypatch.setattr(
+        updater.ssl,
+        "create_default_context",
+        lambda **kwargs: calls.append(kwargs) or object(),
+    )
+
+    context = updater._ssl_context()
+
+    assert context is not None
+    assert calls == [{"cafile": str(ca_file)}]
+
+
 def test_upgrade_rejects_bad_checksum(tmp_path, monkeypatch):
     monkeypatch.setattr(codex_statebar, "__version__", "0.1.1", raising=False)
     payload = io.BytesIO()
