@@ -1,4 +1,5 @@
 import os
+from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
@@ -109,11 +110,19 @@ def test_launcher_stays_quiet_when_routing_to_newer_official(
     )
     launched = []
     monkeypatch.setattr(codex_launcher, "inspect_install", lambda: decision)
-    monkeypatch.setattr(codex_launcher.os, "execv", lambda path, argv: launched.append((path, argv)))
+    monkeypatch.setattr(
+        codex_launcher.os,
+        "execve",
+        lambda path, argv, env: launched.append((path, argv, env)),
+    )
 
     assert codex_launcher.launch(["--version"]) == 127
     assert capsys.readouterr().err == ""
-    assert launched == [(str(official.path), [str(official.path), "--version"])]
+    assert len(launched) == 1
+    assert launched[0][:2] == (
+        str(official.path),
+        [str(official.path), "--version"],
+    )
 
 
 def test_frozen_launcher_resets_pyinstaller_environment_for_nested_cxs(
@@ -133,14 +142,14 @@ def test_frozen_launcher_resets_pyinstaller_environment_for_nested_cxs(
     monkeypatch.setenv("_PYI_PARENT_PROCESS_LEVEL", "1")
     monkeypatch.setattr(
         codex_launcher.os,
-        "execv",
-        lambda path, argv: launched.append(
+        "execve",
+        lambda path, argv, env: launched.append(
             (
                 path,
                 argv,
-                os.environ.get("PYINSTALLER_RESET_ENVIRONMENT"),
-                os.environ.get("_PYI_ARCHIVE_FILE"),
-                os.environ.get("_PYI_PARENT_PROCESS_LEVEL"),
+                env.get("PYINSTALLER_RESET_ENVIRONMENT"),
+                env.get("_PYI_ARCHIVE_FILE"),
+                env.get("_PYI_PARENT_PROCESS_LEVEL"),
             )
         ),
     )
@@ -155,3 +164,33 @@ def test_frozen_launcher_resets_pyinstaller_environment_for_nested_cxs(
             None,
         )
     ]
+
+
+def test_probe_uses_independent_environment_and_cold_start_budget(
+    tmp_path, monkeypatch
+):
+    binary = tmp_path / "codex"
+    binary.touch()
+    calls = []
+    monkeypatch.setattr(codex_launcher.sys, "frozen", True, raising=False)
+    monkeypatch.setenv("_PYI_ARCHIVE_FILE", "/tmp/cxs")
+    monkeypatch.setenv("_PYI_PARENT_PROCESS_LEVEL", "1")
+
+    def fake_run(args, **kwargs):
+        calls.append((args, kwargs))
+        return SimpleNamespace(
+            returncode=0,
+            stdout="codex-cli 0.153.2\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr(codex_launcher.subprocess, "run", fake_run)
+
+    probed = codex_launcher._probe(binary)
+
+    assert probed is not None
+    assert calls[0][1]["timeout"] == 5
+    environment = calls[0][1]["env"]
+    assert environment["PYINSTALLER_RESET_ENVIRONMENT"] == "1"
+    assert "_PYI_ARCHIVE_FILE" not in environment
+    assert "_PYI_PARENT_PROCESS_LEVEL" not in environment

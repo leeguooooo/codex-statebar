@@ -41,6 +41,8 @@ def _binary_contains(path: str, needle: bytes) -> bool:
 
 
 def run() -> int:
+    from .codex_launcher import independent_process_environment, inspect_install
+
     print("\n  cxs doctor — Codex Statebar self-check")
     print(f"  {_paint('2', '─' * 64)}")
 
@@ -57,7 +59,11 @@ def run() -> int:
     if codex:
         try:
             completed = subprocess.run(
-                [codex, "--version"], capture_output=True, text=True, timeout=2,
+                [codex, "--version"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                env=independent_process_environment(),
             )
             version = completed.stdout.strip() or completed.stderr.strip()
             _line("Codex CLI", f"{version} ({codex})", completed.returncode == 0)
@@ -66,7 +72,6 @@ def run() -> int:
     else:
         _line("Codex CLI", "not on PATH", False)
 
-    from .codex_launcher import inspect_install
     launch_decision = inspect_install()
     patched = launch_decision.patched
     official = launch_decision.official

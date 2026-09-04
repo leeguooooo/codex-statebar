@@ -20,6 +20,7 @@ from typing import Iterable, Optional, Sequence, Tuple
 _VERSION_RE = re.compile(
     r"(?<!\d)(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?"
 )
+_PROBE_TIMEOUT_SECONDS = 5
 
 
 @dataclass(frozen=True)
@@ -38,6 +39,17 @@ class LaunchDecision:
     reason: str
 
 
+def independent_process_environment() -> dict[str, str]:
+    """Return an environment safe for processes independent of frozen cxs."""
+    environment = dict(os.environ)
+    if getattr(sys, "frozen", False):
+        for name in tuple(environment):
+            if name.startswith("_PYI_"):
+                environment.pop(name, None)
+        environment["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+    return environment
+
+
 def _version_key(value: str) -> Optional[Tuple[int, int, int, int]]:
     match = _VERSION_RE.search(value)
     if not match:
@@ -53,7 +65,8 @@ def _probe(path: Path) -> Optional[CodexBinary]:
             [str(path), "--version"],
             capture_output=True,
             text=True,
-            timeout=2,
+            timeout=_PROBE_TIMEOUT_SECONDS,
+            env=independent_process_environment(),
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
@@ -213,10 +226,9 @@ def launch(args: Sequence[str]) -> int:
     # its own child even though Codex is now between the two processes, and recent
     # bootloaders reject it because the immediate parent executable is different.
     # Mark later frozen descendants as independent before replacing this process.
-    if getattr(sys, "frozen", False):
-        for name in tuple(os.environ):
-            if name.startswith("_PYI_"):
-                os.environ.pop(name, None)
-        os.environ["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
-    os.execv(str(selected.path), [str(selected.path), *args])
+    os.execve(
+        str(selected.path),
+        [str(selected.path), *args],
+        independent_process_environment(),
+    )
     return 127
