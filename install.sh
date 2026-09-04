@@ -21,7 +21,8 @@ esac
 target="${os}-${arch}"
 base="${CODEX_STATEBAR_RELEASE_BASE:-https://github.com/${REPO}/releases/latest/download}"
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT INT TERM
+install_stage=""
+trap 'rm -rf "$tmp"; if [ -n "$install_stage" ]; then rm -rf "$install_stage"; fi' EXIT INT TERM
 
 verify_asset() {
   asset="$1"
@@ -65,10 +66,18 @@ fi
 verify_asset "$cxs_asset" "$base"
 verify_asset "$codex_asset" "$codex_base"
 
-mkdir -p "$INSTALL_DIR"
-tar -xzf "$tmp/$cxs_asset" -C "$INSTALL_DIR"
-tar -xzf "$tmp/$codex_asset" -C "$INSTALL_DIR"
-chmod +x "$INSTALL_DIR/cxs" "$INSTALL_DIR/codex-cxs"
+mkdir -p "$tmp/unpacked" "$INSTALL_DIR"
+tar -xzf "$tmp/$cxs_asset" -C "$tmp/unpacked"
+tar -xzf "$tmp/$codex_asset" -C "$tmp/unpacked"
+# Stage on the destination filesystem so rename never truncates an executable
+# still mapped by an active session, even when TMPDIR is on another volume.
+install_stage="$(mktemp -d "$INSTALL_DIR/.cxs-install.XXXXXX")"
+for binary in cxs codex-cxs; do
+  cp "$tmp/unpacked/$binary" "$install_stage/$binary"
+  chmod +x "$install_stage/$binary"
+done
+mv -f "$install_stage/codex-cxs" "$INSTALL_DIR/codex-cxs"
+mv -f "$install_stage/cxs" "$INSTALL_DIR/cxs"
 
 if [ "$INSTALL_CODEX_DEFAULT" = "1" ]; then
   codex_path="$INSTALL_DIR/codex"
@@ -92,8 +101,9 @@ if [ "$INSTALL_CODEX_DEFAULT" = "1" ]; then
     'export CODEX_STATEBAR_MANAGED_DIR="$bin_dir"' \
     'exec "$bin_dir/cxs" _launch-codex "$@"' > "$launcher"
   chmod +x "$launcher"
-  cp "$launcher" "$codex_path"
-  chmod +x "$codex_path"
+  cp "$launcher" "$install_stage/codex"
+  chmod +x "$install_stage/codex"
+  mv -f "$install_stage/codex" "$codex_path"
 fi
 
 if [ "$SKIP_SETUP" != "1" ]; then

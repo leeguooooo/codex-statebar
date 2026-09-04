@@ -51,6 +51,12 @@ def test_one_click_installs_both_binaries_and_backs_up_codex(tmp_path: Path):
     install_dir = tmp_path / "bin"
     install_dir.mkdir()
     (install_dir / "codex").write_text("old codex\n", encoding="utf-8")
+    old_renderer = b"running old renderer\n"
+    (install_dir / "cxs").write_bytes(old_renderer)
+    # A hard link observes the old inode just as an already-running executable
+    # does. Reinstallation must replace the directory entry, not its contents.
+    old_inode = tmp_path / "running-renderer"
+    os.link(install_dir / "cxs", old_inode)
 
     env = os.environ.copy()
     env.update({
@@ -68,6 +74,9 @@ def test_one_click_installs_both_binaries_and_backs_up_codex(tmp_path: Path):
     )
 
     assert result.returncode == 0, result.stderr
+    assert old_inode.read_bytes() == old_renderer
+    assert old_inode.stat().st_ino != (install_dir / "cxs").stat().st_ino
+    assert list(install_dir.glob(".cxs-install.*")) == []
     assert (install_dir / "cxs").read_text(encoding="utf-8").startswith("#!/bin/sh")
     assert (install_dir / "codex-cxs").read_text(encoding="utf-8").startswith("#!/bin/sh")
     assert not (install_dir / "codex").is_symlink()
