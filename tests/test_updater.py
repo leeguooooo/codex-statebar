@@ -13,6 +13,22 @@ def test_version_tuple_handles_v_prefix_and_suffix():
     assert updater._version_tuple("1.2.3-beta1") == (1, 2, 3)
 
 
+def test_frozen_upgrade_targets_entrypoint_not_cached_runtime(tmp_path, monkeypatch):
+    entry = tmp_path / "bin/cxs"
+    monkeypatch.setattr(updater.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(updater.sys, "executable", str(tmp_path / "cache/hash/cxs"))
+    monkeypatch.setenv("CODEX_STATEBAR_ENTRYPOINT", str(entry))
+    assert updater._destination() == entry
+
+
+def test_legacy_frozen_upgrade_keeps_executable_destination(tmp_path, monkeypatch):
+    entry = tmp_path / "cxs"
+    monkeypatch.setattr(updater.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(updater.sys, "executable", str(entry))
+    monkeypatch.delenv("CODEX_STATEBAR_ENTRYPOINT", raising=False)
+    assert updater._destination() == entry
+
+
 def test_asset_urls_select_target_and_checksum():
     release = {"assets": [
         {"name": "cxs-macos-arm64.tar.gz", "browser_download_url": "a"},

@@ -70,7 +70,7 @@ def _version_tuple(value: str) -> tuple:
 
 def _destination() -> Optional[Path]:
     if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve()
+        return Path(os.environ.get("CODEX_STATEBAR_ENTRYPOINT") or sys.executable).resolve()
     command = shutil.which("cxs") or shutil.which("codex-statebar")
     return Path(command).resolve() if command else None
 

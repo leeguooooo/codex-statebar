@@ -77,6 +77,14 @@ def test_stable_release_sorts_after_same_version_prerelease():
     )
 
 
+def test_cached_runtime_finds_patched_codex_beside_entrypoint(tmp_path, monkeypatch):
+    monkeypatch.delenv("CODEX_STATEBAR_MANAGED_DIR", raising=False)
+    monkeypatch.setattr(codex_launcher.sys, "frozen", True, raising=False)
+    monkeypatch.setenv("CODEX_STATEBAR_ENTRYPOINT", str(tmp_path / "bin/cxs"))
+    monkeypatch.setattr(codex_launcher.sys, "executable", str(tmp_path / "cache/hash/cxs"))
+    assert codex_launcher._managed_dir() == tmp_path / "bin"
+
+
 def test_chatgpt_app_embedded_codex_is_not_selected(tmp_path):
     managed = tmp_path / "managed"
     official_dir = tmp_path / "official"

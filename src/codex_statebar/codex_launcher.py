@@ -108,6 +108,9 @@ def _managed_dir() -> Path:
     configured = os.environ.get("CODEX_STATEBAR_MANAGED_DIR")
     if configured:
         return Path(configured).expanduser().absolute()
+    entrypoint = os.environ.get("CODEX_STATEBAR_ENTRYPOINT")
+    if getattr(sys, "frozen", False) and entrypoint:
+        return Path(entrypoint).absolute().parent
     command = shutil.which("cxs") or shutil.which("codex-statebar")
     if command:
         return Path(command).absolute().parent
