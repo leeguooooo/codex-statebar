@@ -214,6 +214,9 @@ def launch(args: Sequence[str]) -> int:
     # bootloaders reject it because the immediate parent executable is different.
     # Mark later frozen descendants as independent before replacing this process.
     if getattr(sys, "frozen", False):
+        for name in tuple(os.environ):
+            if name.startswith("_PYI_"):
+                os.environ.pop(name, None)
         os.environ["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
     os.execv(str(selected.path), [str(selected.path), *args])
     return 127

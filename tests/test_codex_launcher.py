@@ -129,6 +129,8 @@ def test_frozen_launcher_resets_pyinstaller_environment_for_nested_cxs(
     monkeypatch.setattr(codex_launcher, "inspect_install", lambda: decision)
     monkeypatch.setattr(codex_launcher.sys, "frozen", True, raising=False)
     monkeypatch.delenv("PYINSTALLER_RESET_ENVIRONMENT", raising=False)
+    monkeypatch.setenv("_PYI_ARCHIVE_FILE", "/tmp/cxs")
+    monkeypatch.setenv("_PYI_PARENT_PROCESS_LEVEL", "1")
     monkeypatch.setattr(
         codex_launcher.os,
         "execv",
@@ -137,6 +139,8 @@ def test_frozen_launcher_resets_pyinstaller_environment_for_nested_cxs(
                 path,
                 argv,
                 os.environ.get("PYINSTALLER_RESET_ENVIRONMENT"),
+                os.environ.get("_PYI_ARCHIVE_FILE"),
+                os.environ.get("_PYI_PARENT_PROCESS_LEVEL"),
             )
         ),
     )
@@ -147,5 +151,7 @@ def test_frozen_launcher_resets_pyinstaller_environment_for_nested_cxs(
             str(official.path),
             [str(official.path), "mcp", "list"],
             "1",
+            None,
+            None,
         )
     ]
