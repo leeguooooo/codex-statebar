@@ -58,7 +58,7 @@ cxs doctor</pre>
         <tr><td>主题 / 样式预览</td><td><code>cxs preview</code></td></tr>
         <tr><td>切换主题</td><td><code>cxs config set theme nord</code></td></tr>
         <tr><td>切换样式</td><td><code>cxs config set style capsule</code></td></tr>
-        <tr><td>配置嵌入式富状态栏</td><td><code>cxs --setup</code></td></tr>
+        <tr><td>配置 Codex 原生状态栏</td><td><code>cxs --setup</code></td></tr>
         <tr><td>JSON 输出</td><td><code>cxs --json-output</code></td></tr>
         <tr><td>精确选择会话</td><td><code>cxs --session &lt;thread-id&gt;</code></td></tr>
       </tbody>
@@ -66,15 +66,12 @@ cxs doctor</pre>
   </section>
 
   <section>
-    <h2>嵌入 Codex TUI</h2>
-    <aside>Codex 0.145.0 稳定版还不能执行外部状态栏命令。本项目提供一个小型 Rust TUI 补丁，让 <code>cxs render</code> 的 ANSI 输出直接出现在输入框下方；Python 继续负责成熟的主题与指标计算。</aside>
-    <p>先构建补丁版 Codex，再写入 command 模式配置：</p>
-    <pre>./scripts/build-patched-codex.sh
-cxs --setup
-./dist/codex-cxs</pre>
-    <p><code>cxs --setup</code> 会写入 <code>[tui].status_line = ["command", "…/cxs", "render"]</code>。原生字段模式仍可用；只有首项为 <code>command</code> 时才调用外部渲染器。补丁包含异步执行、更新合并、超时保护、会话隔离与 ANSI 色彩解析。</p>
-    <p>补丁版 Codex 会读取外部命令最多三行输出，并按实际行数自动增高底部状态区，因此 <code>cxs</code> 的配额、项目与模式三行布局可直接嵌入 TUI。三行上限避免异常命令无限撑高界面。</p>
-    <p>上游仍在讨论正式扩展点：<a href="https://github.com/openai/codex/issues/17827">openai/codex#17827</a>。在官方支持落地前，构建脚本固定使用 <code>rust-v0.145.0</code>，避免补丁静默套到不兼容版本。</p>
+    <h2>Codex TUI 状态栏</h2>
+    <aside>稳定版 Codex 的 <code>[tui].status_line</code> 只接受内置项目 ID。<code>cxs --setup</code> 写入兼容的原生状态栏；富状态栏可用 <code>cxs</code> 或 <code>cxs watch</code> 查看。</aside>
+    <pre>cxs --setup</pre>
+    <p>配置包含模型、目录、Git 分支、上下文余量、5 小时与每周限额、Fast 状态。重启 Codex CLI 后生效。</p>
+    <p>需要试验性的嵌入式富状态栏时，可运行 <code>./scripts/build-patched-codex.sh</code>，再显式启动 <code>./dist/codex-cxs</code>。补丁固定对应 <code>rust-v0.145.0</code>；官方 Codex 版本更高时，默认启动器不会自动降级。</p>
+    <p>上游扩展点进展见 <a href="https://github.com/openai/codex/issues/17827">openai/codex#17827</a>。</p>
     <p>新建 Codex CLI 后，需要至少发送一条消息，Codex 才会创建可读取的 rollout。若尚未发送消息，<code>cxs</code> 会提示先完成首轮交互；它不会改用同目录的 Desktop 会话。</p>
   </section>
 

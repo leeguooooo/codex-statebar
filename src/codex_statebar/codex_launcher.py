@@ -204,22 +204,8 @@ def launch(args: Sequence[str]) -> int:
     if selected is None:
         print(f"codex-statebar: {decision.reason}", file=sys.stderr)
         return 127
-    if selected is decision.official and decision.reason != "forced official Codex":
-        if decision.patched:
-            detail = (
-                f"{decision.official.version_text} at {decision.official.path} is newer "
-                f"than patched Codex ({decision.patched.version_text})"
-            )
-            recovery = "Run codex-cxs to force the patched build."
-        else:
-            detail = f"patched Codex is missing; found {decision.official.version_text}"
-            recovery = "Re-run the codex-statebar installer to restore it."
-        print(
-            "codex-statebar: "
-            f"{detail}; running the official binary. "
-            "The embedded rich status bar is disabled until codex-statebar catches up. "
-            f"{recovery}",
-            file=sys.stderr,
-        )
+    # Selecting a newer official Codex is the healthy default. The native
+    # status-line fallback remains available, and `cxs doctor` reports the full
+    # routing decision when diagnostics are needed, so normal launches stay quiet.
     os.execv(str(selected.path), [str(selected.path), *args])
     return 127

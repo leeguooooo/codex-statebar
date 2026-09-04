@@ -1,6 +1,12 @@
 from codex_statebar import setup
 
 
+def test_statusline_descriptor_uses_stable_codex_items():
+    descriptor = setup._statusline_config()
+    assert descriptor["items"] == list(setup.NATIVE_ITEMS)
+    assert descriptor["external"] is False
+
+
 def test_setup_creates_tui_section_and_preserves_root_keys(tmp_path):
     path = tmp_path / "config.toml"
     path.write_text('model = "gpt-5.6"\n', encoding="utf-8")
@@ -10,8 +16,8 @@ def test_setup_creates_tui_section_and_preserves_root_keys(tmp_path):
     assert 'model = "gpt-5.6"' in text
     assert "[tui]" in text
     assert "status_line_use_colors = true" in text
-    assert 'status_line = ["command",' in text
-    assert '"render"]' in text
+    assert 'status_line = ["model-with-reasoning",' in text
+    assert '"weekly-limit", "fast-mode"]' in text
 
 
 def test_setup_updates_only_managed_tui_keys(tmp_path):
@@ -25,6 +31,21 @@ def test_setup_updates_only_managed_tui_keys(tmp_path):
     assert "animations = false" in text
     assert "[features]" in text and "hooks = true" in text
     assert text.count("status_line =") == 1
+
+
+def test_setup_replaces_multiline_status_line_without_orphans(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text(
+        '[tui]\nstatus_line = [\n    "command",\n    "/tmp/cxs",\n    "render",\n]\n'
+        'status_line_use_colors = true\nterminal_title = []\n',
+        encoding="utf-8",
+    )
+    setup._configure(path)
+    text = path.read_text(encoding="utf-8")
+    assert '"command"' not in text
+    assert '"/tmp/cxs"' not in text
+    assert '"render"' not in text
+    assert "terminal_title = []" in text
 
 
 def test_setup_is_idempotent(tmp_path):

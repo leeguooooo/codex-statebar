@@ -1,4 +1,4 @@
-"""Codex CLI setup helpers for the patched command-status-line build."""
+"""Codex CLI status-line setup helpers."""
 
 from __future__ import annotations
 
@@ -36,9 +36,9 @@ def _resolve_cs_command() -> str:
 def _statusline_config(fast: bool = False, refresh_interval: int = 1) -> dict:
     """Compatibility descriptor used by diagnostics and older callers."""
     return {
-        "items": ["command", _resolve_cs_command(), "render"],
+        "items": list(NATIVE_ITEMS),
         "colors": True,
-        "external": True,
+        "external": False,
     }
 
 
@@ -69,8 +69,27 @@ def entry_is_our_command(value: object) -> bool:
 
 
 def _array_literal() -> str:
-    items = ("command", _resolve_cs_command(), "render")
-    return "[" + ", ".join(json.dumps(item) for item in items) + "]"
+    return "[" + ", ".join(json.dumps(item) for item in NATIVE_ITEMS) + "]"
+
+
+def _without_managed_tui_keys(section: list[str]) -> list[str]:
+    """Remove our TUI keys, including a multiline ``status_line`` array."""
+    kept: list[str] = []
+    skipping_status_line = False
+    for line in section:
+        stripped = line.strip()
+        if skipping_status_line:
+            if "]" in stripped:
+                skipping_status_line = False
+            continue
+        if stripped == _MARKER or re.match(r"^status_line_use_colors\s*=", stripped):
+            continue
+        if re.match(r"^status_line\s*=", stripped):
+            value = stripped.split("=", 1)[1].strip()
+            skipping_status_line = value.startswith("[") and "]" not in value
+            continue
+        kept.append(line)
+    return kept
 
 
 def _upsert_tui(text: str) -> str:
@@ -98,13 +117,7 @@ def _upsert_tui(text: str) -> str:
         lines.extend(["[tui]", *desired])
         return "\n".join(lines) + "\n"
 
-    section = lines[start + 1:end]
-    section = [
-        line for line in section
-        if line.strip() != _MARKER
-        and not re.match(r"^\s*status_line\s*=", line)
-        and not re.match(r"^\s*status_line_use_colors\s*=", line)
-    ]
+    section = _without_managed_tui_keys(lines[start + 1:end])
     lines[start + 1:end] = [*desired, *section]
     return "\n".join(lines) + "\n"
 
@@ -116,14 +129,14 @@ def _configure(path: Path) -> Tuple[bool, str]:
         return False, f"Could not read {path}: {exc}"
     updated = _upsert_tui(original)
     if updated == original:
-        return False, f"Codex command status line already configured in {path}"
+        return False, f"Codex native status line already configured in {path}"
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
         return False, f"Could not create {path.parent}: {exc}"
     if not atomic_write_text(path, updated):
         return False, f"Could not write {path}"
-    return True, f"Configured Codex command status line in {path}"
+    return True, f"Configured Codex native status line in {path}"
 
 
 def is_statusline_configured() -> bool:
@@ -131,11 +144,8 @@ def is_statusline_configured() -> bool:
         text = SETTINGS_PATH.read_text(encoding="utf-8")
     except OSError:
         return False
-    return (
-        _MARKER in text
-        and 'status_line = ["command",' in text
-        and '"render"]' in text
-    )
+    literal = _array_literal()
+    return _MARKER in text and f"status_line = {literal}" in text
 
 
 def ensure_statusline_configured(fast: Optional[bool] = None) -> Tuple[bool, str]:
@@ -188,8 +198,8 @@ def run_setup(verbose: bool = True, install_cmds: bool = True,
     ok = changed or "already configured" in message
     if verbose:
         print(f"{'✓' if ok else '!'} {message}")
-        print("  Requires the codex-statebar patched Codex binary.")
-        print("  The rich cxs renderer is embedded below the composer.")
+        print("  Uses Codex's built-in status-line items for stable CLI compatibility.")
+        print("  Run `cxs` or `cxs watch` for the rich renderer.")
         if changed:
             print("  Restart Codex CLI to load the command status-line configuration.")
     if install_cmds:

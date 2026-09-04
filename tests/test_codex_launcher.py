@@ -93,3 +93,24 @@ def test_chatgpt_app_embedded_codex_is_not_selected(tmp_path):
     )
 
     assert decision.official.path == official_dir / "codex"
+
+
+def test_launcher_stays_quiet_when_routing_to_newer_official(
+    tmp_path, monkeypatch, capsys
+):
+    patched = codex_launcher.CodexBinary(
+        tmp_path / "codex-cxs", "codex-cli 0.145.0", (0, 145, 0, 1), True
+    )
+    official = codex_launcher.CodexBinary(
+        tmp_path / "codex", "codex-cli 0.153.2", (0, 153, 2, 1), False
+    )
+    decision = codex_launcher.LaunchDecision(
+        official, patched, official, "official Codex is newer than the patched build"
+    )
+    launched = []
+    monkeypatch.setattr(codex_launcher, "inspect_install", lambda: decision)
+    monkeypatch.setattr(codex_launcher.os, "execv", lambda path, argv: launched.append((path, argv)))
+
+    assert codex_launcher.launch(["--version"]) == 127
+    assert capsys.readouterr().err == ""
+    assert launched == [(str(official.path), [str(official.path), "--version"])]
