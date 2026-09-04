@@ -114,3 +114,38 @@ def test_launcher_stays_quiet_when_routing_to_newer_official(
     assert codex_launcher.launch(["--version"]) == 127
     assert capsys.readouterr().err == ""
     assert launched == [(str(official.path), [str(official.path), "--version"])]
+
+
+def test_frozen_launcher_resets_pyinstaller_environment_for_nested_cxs(
+    tmp_path, monkeypatch
+):
+    official = codex_launcher.CodexBinary(
+        tmp_path / "codex", "codex-cli 0.153.2", (0, 153, 2, 1), False
+    )
+    decision = codex_launcher.LaunchDecision(
+        official, None, official, "patched Codex is not installed"
+    )
+    launched = []
+    monkeypatch.setattr(codex_launcher, "inspect_install", lambda: decision)
+    monkeypatch.setattr(codex_launcher.sys, "frozen", True, raising=False)
+    monkeypatch.delenv("PYINSTALLER_RESET_ENVIRONMENT", raising=False)
+    monkeypatch.setattr(
+        codex_launcher.os,
+        "execv",
+        lambda path, argv: launched.append(
+            (
+                path,
+                argv,
+                os.environ.get("PYINSTALLER_RESET_ENVIRONMENT"),
+            )
+        ),
+    )
+
+    assert codex_launcher.launch(["mcp", "list"]) == 127
+    assert launched == [
+        (
+            str(official.path),
+            [str(official.path), "mcp", "list"],
+            "1",
+        )
+    ]

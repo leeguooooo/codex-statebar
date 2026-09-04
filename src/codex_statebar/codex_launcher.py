@@ -207,5 +207,13 @@ def launch(args: Sequence[str]) -> int:
     # Selecting a newer official Codex is the healthy default. The native
     # status-line fallback remains available, and `cxs doctor` reports the full
     # routing decision when diagnostics are needed, so normal launches stay quiet.
+    #
+    # A frozen cxs process can be replaced by Codex, which may later invoke cxs
+    # again through hooks. PyInstaller otherwise treats that nested invocation as
+    # its own child even though Codex is now between the two processes, and recent
+    # bootloaders reject it because the immediate parent executable is different.
+    # Mark later frozen descendants as independent before replacing this process.
+    if getattr(sys, "frozen", False):
+        os.environ["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
     os.execv(str(selected.path), [str(selected.path), *args])
     return 127
