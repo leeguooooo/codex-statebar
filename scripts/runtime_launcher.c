@@ -113,7 +113,11 @@ static int ready(const char *runtime) {
 }
 
 int main(int argc, char **argv) {
-    (void)argc;
+    const char *probe = getenv("CODEX_STATEBAR_VERSION_PROBE");
+    if (argc > 1 && strcmp(argv[1], "_launch-codex") == 0 && probe && *probe) {
+        fprintf(stderr, "codex-statebar: refused recursive Codex version probe\n");
+        return 126;
+    }
     char self[PATH_MAX], resolved[PATH_MAX], base[PATH_MAX];
 #ifdef __APPLE__
     uint32_t size = sizeof(self);

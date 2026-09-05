@@ -19,6 +19,14 @@ def verify(entrypoint: Path) -> dict:
         env = {**os.environ, "CODEX_STATEBAR_RUNTIME_DIR": str(cache),
                "TMPDIR": str(temp), "PYINSTALLER_RESET_ENVIRONMENT": "1"}
 
+        blocked = subprocess.run(
+            [str(entrypoint), "_launch-codex", "--version"],
+            env={**env, "CODEX_STATEBAR_VERSION_PROBE": "1"},
+            capture_output=True, text=True, timeout=5,
+        )
+        assert blocked.returncode == 126 and "recursive" in blocked.stderr
+        assert not cache.exists(), "probe re-entry unexpectedly initialized runtime"
+
         def launch(_=None):
             result = subprocess.run([str(entrypoint), "--version"], env=env,
                                     capture_output=True, text=True, timeout=30)
@@ -61,7 +69,8 @@ def verify(entrypoint: Path) -> dict:
         assert not list(temp.glob("_MEI*"))
         return {"version": versions[0], "parallel_starts": 16,
                 "warm_starts": 16, "runtime_directories": 1,
-                "new_MEI_directories": 0, "killed_extract_recovered": True}
+                "new_MEI_directories": 0, "killed_extract_recovered": True,
+                "recursive_probe_rejected_before_unpack": True}
 
 
 if __name__ == "__main__":

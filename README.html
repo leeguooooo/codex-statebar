@@ -46,6 +46,7 @@ cxs doctor</pre>
     <p>启动器会比较 PATH 中的官方 Codex 和补丁版：补丁版版本相同或更新时运行 <code>codex-cxs</code>；官方版更新时改为运行官方版，并提示嵌入式状态栏暂时停用。这样官方更新不会被旧补丁版静默遮住。<code>cxs upgrade</code> 会一起校验并更新 <code>cxs</code> 与 <code>codex-cxs</code>。</p>
     <p>发布物由 GitHub Actions 为 macOS / Linux 构建为独立二进制；用户端不需要 Python 或 Rust。若不想安装用户级启动器，设置 <code>CODEX_STATEBAR_INSTALL_CODEX_DEFAULT=0</code>。</p>
     <p>macOS / Linux 版首次启动时将运行时展开到 <code>~/.local/lib/codex-statebar/&lt;内容校验值&gt;/</code>，后续启动复用该目录，不再为每次刷新创建 <code>_MEI…</code>。文件锁保护并发初始化，中断后自动重建不完整目录。可用 <code>CODEX_STATEBAR_RUNTIME_DIR</code> 指定存放位置。旧运行时保留供现有会话使用；升级更新安装入口。</p>
+    <p>版本探测跳过 cmux 转发脚本；其他包装脚本若绕回 <code>cxs</code>，重入保护会立即拒绝探针，避免递归进程链。</p>
   </section>
 
   <section>

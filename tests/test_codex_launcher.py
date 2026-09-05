@@ -200,5 +200,85 @@ def test_probe_uses_independent_environment_and_cold_start_budget(
     assert calls[0][1]["timeout"] == 5
     environment = calls[0][1]["env"]
     assert environment["PYINSTALLER_RESET_ENVIRONMENT"] == "1"
+    assert environment["CODEX_STATEBAR_VERSION_PROBE"] == "1"
     assert "_PYI_ARCHIVE_FILE" not in environment
     assert "_PYI_PARENT_PROCESS_LEVEL" not in environment
+
+
+@pytest.mark.parametrize("layout", ["cmux-cli-shims/surface", "custom-wrapper"])
+def test_cmux_routing_wrapper_is_not_probed(tmp_path, monkeypatch, layout):
+    managed = tmp_path / "managed"
+    official = tmp_path / "official"
+    shim_dir = tmp_path / layout
+    for directory in (managed, official, shim_dir):
+        directory.mkdir(parents=True)
+    real = _binary(official / "codex", "0.153.2")
+    shim = shim_dir / "codex"
+    shim.write_text('#!/bin/sh\n# CMUX_CODEX_WRAPPER_SHIM\nexit 99\n')
+    shim.chmod(0o755)
+    calls = []
+
+    def probe(path):
+        calls.append(path)
+        assert path != shim, "routing wrapper must never be executed"
+        return codex_launcher.CodexBinary(path, "codex-cli 0.153.2", (0, 153, 2, 1), False)
+
+    monkeypatch.setattr(codex_launcher, "_probe", probe)
+    decision = codex_launcher.inspect_install(
+        managed_dir=managed,
+        path_value=os.pathsep.join(map(str, (shim_dir, managed, official))),
+    )
+    assert calls == [real]
+    assert decision.selected.path == real
+
+
+def test_reentrant_probe_stops_before_discovery_or_spawn(monkeypatch, capsys):
+    monkeypatch.setenv("CODEX_STATEBAR_VERSION_PROBE", "1")
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("recursive version probe attempted discovery or execution")
+
+    monkeypatch.setattr(codex_launcher, "inspect_install", forbidden)
+    monkeypatch.setattr(codex_launcher.subprocess, "run", forbidden)
+    monkeypatch.setattr(codex_launcher.os, "execve", forbidden)
+    assert codex_launcher.launch(["--version"]) == 126
+    assert codex_launcher._probe(Path("/unused/codex")) is None
+    assert "recursive" in capsys.readouterr().err
+
+
+def test_unrecognized_wrapper_receives_probe_guard(tmp_path, monkeypatch):
+    import shlex
+    import sys
+
+    monkeypatch.delenv("CODEX_STATEBAR_VERSION_PROBE", raising=False)
+    wrapper = tmp_path / "codex"
+    # Safety sentinel: even if the guard regresses, the fixture cannot recurse.
+    # It exits 99 before invoking the launcher when the marker is missing.
+    code = (
+        "import os,sys; from codex_statebar import codex_launcher as c; "
+        "sys.exit(99) if not os.environ.get('CODEX_STATEBAR_VERSION_PROBE') else None; "
+        "c.inspect_install=lambda:sys.exit(98); "
+        "sys.exit(c.launch(['--version']))"
+    )
+    wrapper.write_text(f"#!/bin/sh\nexec {shlex.quote(sys.executable)} -c {shlex.quote(code)}\n")
+    wrapper.chmod(0o755)
+    monkeypatch.setenv("PYTHONPATH", str(Path(__file__).resolve().parents[1] / "src"))
+    original = codex_launcher.subprocess.run
+    outputs = []
+
+    def observed(*args, **kwargs):
+        result = original(*args, **kwargs)
+        outputs.append(result)
+        return result
+
+    monkeypatch.setattr(codex_launcher.subprocess, "run", observed)
+    assert codex_launcher._probe(wrapper) is None
+    assert len(outputs) == 1
+    assert outputs[0].returncode == 126
+    assert "recursive" in outputs[0].stderr
+
+
+def test_probe_ignores_successful_empty_output(tmp_path, monkeypatch):
+    monkeypatch.setattr(codex_launcher.subprocess, "run", lambda *a, **k:
+                        SimpleNamespace(returncode=0, stdout="", stderr=""))
+    assert codex_launcher._probe(tmp_path / "codex") is None

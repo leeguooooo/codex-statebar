@@ -28,6 +28,8 @@ curl -fsSL https://raw.githubusercontent.com/leeguooooo/codex-statebar/main/inst
 
 macOS / Linux 版首次启动时将运行时展开到 `~/.local/lib/codex-statebar/<内容校验值>/`，后续启动复用该目录，不再为每次状态栏刷新创建 `_MEI…`。并发初始化由文件锁保护；中断后的不完整目录会在下次启动时重建。可用 `CODEX_STATEBAR_RUNTIME_DIR` 指定存放位置。旧运行时保留供现有会话使用；`cxs upgrade` 更新安装入口。
 
+版本探测会跳过 cmux 的转发脚本。如果其他包装脚本绕回 `cxs`，探针重入会立即失败并继续选择独立的 Codex 安装，避免形成递归进程链。
+
 ## 使用
 
 | 目标 | 命令 |

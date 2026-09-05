@@ -21,6 +21,7 @@ _VERSION_RE = re.compile(
     r"(?<!\d)(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?"
 )
 _PROBE_TIMEOUT_SECONDS = 5
+_VERSION_PROBE_ENV = "CODEX_STATEBAR_VERSION_PROBE"
 
 
 @dataclass(frozen=True)
@@ -60,19 +61,28 @@ def _version_key(value: str) -> Optional[Tuple[int, int, int, int]]:
 
 
 def _probe(path: Path) -> Optional[CodexBinary]:
+    if os.environ.get(_VERSION_PROBE_ENV):
+        return None
+    environment = independent_process_environment()
+    # A PATH entry can be an unrecognized wrapper that routes back through cxs.
+    # Its child must fail before starting another set of version probes.
+    environment[_VERSION_PROBE_ENV] = "1"
     try:
         completed = subprocess.run(
             [str(path), "--version"],
             capture_output=True,
             text=True,
             timeout=_PROBE_TIMEOUT_SECONDS,
-            env=independent_process_environment(),
+            env=environment,
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
     if completed.returncode != 0:
         return None
-    text = (completed.stdout.strip() or completed.stderr.strip()).splitlines()[0]
+    lines = (completed.stdout.strip() or completed.stderr.strip()).splitlines()
+    if not lines:
+        return None
+    text = lines[0]
     version = _version_key(text)
     if version is None:
         return None
@@ -102,6 +112,24 @@ def _is_managed_launcher(path: Path) -> bool:
 def _is_app_embedded_binary(path: Path) -> bool:
     normalized = str(path).replace("\\", "/")
     return ".app/Contents/Resources/" in normalized
+
+
+def _is_cmux_launcher(path: Path) -> bool:
+    # cmux forwards --version to the first non-cmux codex on PATH, which can be
+    # our managed launcher. It is a routing layer, not an independent install.
+    try:
+        if "cmux-cli-shims" in path.parts or "cmux-cli-shims" in path.resolve().parts:
+            return True
+        with path.open("rb") as handle:
+            prefix = handle.read(4096)
+        return prefix.startswith(b"#!") and any(
+            marker in prefix for marker in (
+                b"CMUX_CODEX_WRAPPER_SHIM", b"cmux-codex-wrapper",
+                b"cmux_codex_wrapper_is_self_or_shim",
+            )
+        )
+    except OSError:
+        return False
 
 
 def _managed_dir() -> Path:
@@ -136,6 +164,8 @@ def _official_paths(
         if _is_app_embedded_binary(candidate):
             continue
         if _is_managed_launcher(candidate):
+            continue
+        if _is_cmux_launcher(candidate):
             continue
         if _same_file(candidate, managed_dir / executable):
             continue
@@ -215,6 +245,9 @@ def inspect_install(
 
 
 def launch(args: Sequence[str]) -> int:
+    if os.environ.get(_VERSION_PROBE_ENV):
+        print("codex-statebar: refused recursive Codex version probe", file=sys.stderr)
+        return 126
     decision = inspect_install()
     selected = decision.selected
     if selected is None:

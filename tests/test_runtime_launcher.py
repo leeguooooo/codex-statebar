@@ -124,6 +124,16 @@ def test_build_rejects_missing_runtime(tmp_path):
         build(tmp_path / "missing", tmp_path / "cxs")
 
 
+def test_recursive_version_probe_is_rejected_before_unpacking(launcher):
+    entry, cache, _digest, env = launcher
+    env = {**env, "CODEX_STATEBAR_VERSION_PROBE": "1"}
+    result = subprocess.run([str(entry), "_launch-codex", "--version"], env=env,
+                            capture_output=True, text=True, timeout=5)
+    assert result.returncode == 126
+    assert "recursive" in result.stderr
+    assert not cache.exists(), "recursive probe must not initialize another runtime"
+
+
 def test_legacy_single_member_upgrade_installs_complete_runtime(launcher, tmp_path):
     entry, _cache, _digest, env = launcher
     archive = io.BytesIO()
