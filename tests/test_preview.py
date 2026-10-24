@@ -176,3 +176,16 @@ def test_preview_hides_five_hour_in_header_and_all_styles():
     assert rc == 0
     assert '5h' not in out.lower()
     assert '7d' in out.lower()
+
+
+def test_native_payload_preview_uses_live_weekly_and_context(tmp_path, monkeypatch):
+    path = tmp_path / 'native.json'
+    path.write_text(json.dumps({'_codex_live': True, 'codex_version': '0.164.0',
+        'thread_id': None, 'model': 'gpt-ui-probe',
+        'context': {'used_percent': 20, 'window_tokens': 100000},
+        'limits': {'weekly': {'used_percent': 76}}}))
+    monkeypatch.setattr(preview, 'CACHED_STDIN', path)
+    rc, out = _run(style_filter='aurora', theme_filter='graphite')
+    assert rc == 0
+    assert '76%' in out and '20%' in out and 'gpt-ui-probe' in out
+    assert '5h' not in out.lower() and 'COLD' not in out

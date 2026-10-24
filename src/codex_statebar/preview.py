@@ -39,6 +39,23 @@ def _real_data() -> Optional[dict]:
         raw = json.loads(CACHED_STDIN.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
+    if not isinstance(raw, dict):
+        return None
+    if raw.get("_codex_live") or "codex_version" in raw or "thread_id" in raw:
+        from .rollout import collect_status
+        from .core import _context_window_usage
+        from .activity import read_activity
+        status = collect_status(raw)
+        pct, size, used = _context_window_usage(status)
+        name = str(status.get("display_name") or status.get("model_id") or "Unknown")
+        if size > 0:
+            name = f"{name}({_fmt_num(used)}/{_fmt_num(size)})"
+        transcript = status.get("rollout_path")
+        return dict(msgs_pct=None, weekly_pct=status.get("rate_limit_7d_pct"),
+                    reset_5h="--", reset_7d=_fmt_reset(status.get("rate_limit_7d_resets_at")),
+                    model=name, ctx_pct=pct, cache_age_text="", cost_text="",
+                    activity=read_activity(transcript) if transcript else None,
+                    duration_text="", lines_text="")
     rl = raw.get("rate_limits") or {}
     fh = rl.get("five_hour", {}) or {}
     sd = rl.get("seven_day", {}) or {}
@@ -137,7 +154,9 @@ def run(use_color: bool = True, theme_filter: Optional[str] = None,
 
     print()
     print(f"  {OK}● 数据源{R}：{src_label}")
-    print(f"  {DIM}7d={data['weekly_pct']}% · {data['model']}{R}")
+    weekly = data['weekly_pct']
+    weekly_text = "--%" if weekly is None else f"{weekly:g}%"
+    print(f"  {DIM}7d={weekly_text} · {data['model']}{R}")
 
     style_titles = {
         "aurora": "00 · AURORA（渐变进度条）",
@@ -175,7 +194,7 @@ def run(use_color: bool = True, theme_filter: Optional[str] = None,
                 style_name, theme=BUILTIN_THEMES[0],
                 msgs_pct=data["msgs_pct"], weekly_pct=data["weekly_pct"],
                 reset_5h=data["reset_5h"], reset_7d=data["reset_7d"],
-                model=data["model"],
+                model=data["model"], ctx_pct=data.get("ctx_pct"),
                 lang_body="",
                 cost_text=data.get("cost_text", ""),
                 cache_age_text=data.get("cache_age_text", ""),
@@ -191,7 +210,7 @@ def run(use_color: bool = True, theme_filter: Optional[str] = None,
                 style_name, theme=theme,
                 msgs_pct=data["msgs_pct"], weekly_pct=data["weekly_pct"],
                 reset_5h=data["reset_5h"], reset_7d=data["reset_7d"],
-                model=data["model"],
+                model=data["model"], ctx_pct=data.get("ctx_pct"),
                 lang_body="",
                 cost_text=data.get("cost_text", ""),
                 cache_age_text=data.get("cache_age_text", ""),
