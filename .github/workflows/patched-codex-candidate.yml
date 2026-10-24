@@ -2,16 +2,48 @@ name: Patched Codex candidate
 
 on:
   workflow_dispatch:
+    inputs:
+      platforms:
+        description: Platforms to build
+        type: choice
+        options: [macos-arm64, remaining, all]
+        default: macos-arm64
 
 permissions:
   contents: read
 
 jobs:
-  macos-arm64:
-    runs-on: macos-15
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.targets.outputs.matrix }}
+    steps:
+      - id: targets
+        env:
+          PLATFORMS: ${{ inputs.platforms }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          targets = [
+              {"os": "macos-15", "target": "macos-arm64"},
+              {"os": "macos-15-intel", "target": "macos-x86_64"},
+              {"os": "ubuntu-24.04", "target": "linux-x86_64"},
+              {"os": "ubuntu-24.04-arm", "target": "linux-arm64"},
+          ]
+          mode = os.environ['PLATFORMS']
+          selected = targets if mode == 'all' else (targets[1:] if mode == 'remaining' else targets[:1])
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('matrix=' + json.dumps({'include': selected}) + '\n')
+          PY
+  build:
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     env:
-      CARGO_BUILD_JOBS: 3
+      CARGO_BUILD_JOBS: 2
       CARGO_PROFILE_RELEASE_LTO: "false"
       CARGO_PROFILE_RELEASE_DEBUG: "0"
       CODEX_RUN_PATCH_TESTS: "1"
@@ -26,15 +58,30 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             build/codex-0.164.0/target
-          key: codex-0.164.0-macos-arm64-${{ hashFiles('patches/codex-0.164.0*', 'scripts/build-patched-codex.sh') }}
-          restore-keys: codex-0.164.0-macos-arm64-
+          key: codex-0.164.0-${{ matrix.target }}-${{ hashFiles('patches/codex-0.164.0*', 'scripts/build-patched-codex.sh') }}
+          restore-keys: codex-0.164.0-${{ matrix.target }}-
       - run: ./scripts/build-patched-codex.sh
       - run: ./dist/codex-cxs --version
       - run: python3 scripts/verify_embedded_codex.py dist/codex-cxs
+      - name: Package verified candidate
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          tar -czf "dist/codex-cxs-$TARGET.tar.gz" -C dist codex-cxs
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, os
+          asset = Path('dist') / ('codex-cxs-' + os.environ['TARGET'] + '.tar.gz')
+          asset.with_name(asset.name + '.sha256').write_text(hashlib.sha256(asset.read_bytes()).hexdigest() + '  ' + asset.name + '\n')
+          PY
+          python3 scripts/codex_build_manifest.py fingerprint > "dist/codex-cxs-$TARGET.fingerprint"
       - uses: actions/upload-artifact@v4
         with:
-          name: codex-cxs-macos-arm64-candidate
-          path: dist/codex-cxs
+          name: codex-cxs-${{ matrix.target }}-candidate
+          path: |
+            dist/codex-cxs-${{ matrix.target }}.tar.gz
+            dist/codex-cxs-${{ matrix.target }}.tar.gz.sha256
+            dist/codex-cxs-${{ matrix.target }}.fingerprint
       - uses: actions/cache/save@v4
         if: always()
         with:
@@ -42,4 +89,4 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             build/codex-0.164.0/target
-          key: codex-0.164.0-macos-arm64-${{ hashFiles('patches/codex-0.164.0*', 'scripts/build-patched-codex.sh') }}
+          key: codex-0.164.0-${{ matrix.target }}-${{ hashFiles('patches/codex-0.164.0*', 'scripts/build-patched-codex.sh') }}

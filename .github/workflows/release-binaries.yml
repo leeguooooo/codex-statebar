@@ -4,6 +4,11 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      build_cli_only:
+        description: Build CLI candidate artifacts without creating a release
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -97,7 +102,7 @@ jobs:
 
   build-patched-codex:
     needs: find-patched-codex
-    if: needs.find-patched-codex.outputs.source_tag == ''
+    if: needs.find-patched-codex.outputs.source_tag == '' && !inputs.build_cli_only
     strategy:
       matrix:
         include:
@@ -155,7 +160,7 @@ jobs:
   release:
     needs: [find-patched-codex, build, build-patched-codex]
     if: >-
-      always() &&
+      always() && !inputs.build_cli_only &&
       needs.find-patched-codex.result == 'success' &&
       needs.build.result == 'success' &&
       (
