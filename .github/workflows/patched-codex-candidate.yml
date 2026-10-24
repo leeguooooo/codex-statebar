@@ -1,0 +1,44 @@
+name: Patched Codex candidate
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos-arm64:
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      CARGO_BUILD_JOBS: 3
+      CARGO_PROFILE_RELEASE_LTO: "false"
+      CARGO_PROFILE_RELEASE_DEBUG: "0"
+      CODEX_RUN_PATCH_TESTS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.99.1
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            build/codex-0.164.0/target
+          key: codex-0.164.0-macos-arm64-${{ hashFiles('patches/codex-0.164.0*', 'scripts/build-patched-codex.sh') }}
+          restore-keys: codex-0.164.0-macos-arm64-
+      - run: ./scripts/build-patched-codex.sh
+      - run: ./dist/codex-cxs --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codex-cxs-macos-arm64-candidate
+          path: dist/codex-cxs
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            build/codex-0.164.0/target
+          key: codex-0.164.0-macos-arm64-${{ hashFiles('patches/codex-0.164.0*', 'scripts/build-patched-codex.sh') }}

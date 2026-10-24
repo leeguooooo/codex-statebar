@@ -194,3 +194,29 @@ def test_empty_usage_object_preserves_last_context(tmp_path, monkeypatch):
         f.write(json.dumps({'type': 'event_msg', 'payload': {
             'type': 'token_count', 'info': {'last_token_usage': {}}}}) + '\n')
     assert rollout.collect_status({'thread_id': 'thread-1'})['context_used_pct'] == 25
+
+
+def test_live_tui_without_thread_never_borrows_cwd_session(monkeypatch):
+    def wrong(*_args, **_kwargs):
+        raise AssertionError('new TUI must not discover another session')
+    monkeypatch.setattr(rollout, 'find_rollout', wrong)
+    monkeypatch.setenv('CODEX_STATEBAR_THREAD_ID', 'other-thread')
+    status = rollout.collect_status({'_codex_live': True, 'model': 'gpt-live',
+                                     'terminal_columns': 60})
+    assert status['model_id'] == 'gpt-live'
+    assert status['terminal_columns'] == 60
+    assert 'rollout_path' not in status
+
+
+def test_live_context_and_weekly_are_authoritative(tmp_path, monkeypatch):
+    home = tmp_path / '.codex'
+    path = home / 'sessions/rollout-thread-1.jsonl'
+    _write_rollout(path, str(tmp_path))
+    monkeypatch.setenv('CODEX_HOME', str(home))
+    status = rollout.collect_status({'_codex_live': True, 'thread_id': 'thread-1',
+        'context': {'used_percent': 10, 'window_tokens': 500000},
+        'limits': {'weekly': {'used_percent': 77}}, 'terminal_columns': 40})
+    assert status['context_used_pct'] == 10
+    assert status['context_window_size'] == 500000
+    assert status['rate_limit_7d_pct'] == 77
+    assert status['terminal_columns'] == 40

@@ -191,6 +191,9 @@ def _external_payload(data: dict) -> Dict[str, Any]:
     out["session_id"] = data.get("thread_id") or data.get("session_id") or data.get("id")
     out["effort_level"] = data.get("reasoning_effort") or data.get("effort")
     out["fast_mode"] = data.get("fast_mode")
+    columns = _finite_number(data.get("terminal_columns"))
+    if columns is not None and 0 < columns <= 10000:
+        out["terminal_columns"] = int(columns)
     out["codex_version"] = data.get("codex_version") or data.get("version")
     workspace = data.get("workspace")
     if isinstance(workspace, dict):
@@ -278,6 +281,12 @@ def collect_status(data: Optional[dict] = None) -> Dict[str, Any]:
                     os.environ.get("CODEX_STATEBAR_THREAD_ID") or "")
     cwd = str(out.get("workspace_current_dir") or data.get("cwd") or os.getcwd())
     explicit = str(data.get("rollout_path") or data.get("transcript_path") or "")
+    if data.get("_codex_live"):
+        thread_id = str(out.get("session_id") or "")
+    if data.get("_codex_live") and not (thread_id or explicit):
+        # A newly opened TUI does not yet have an attached thread. Never borrow
+        # another terminal's rollout merely because it has the same cwd.
+        return out
     path = find_rollout(thread_id, cwd, explicit)
     if path is None:
         return out
@@ -366,6 +375,15 @@ def collect_status(data: Optional[dict] = None) -> Dict[str, Any]:
                     out["context_used_pct"] = pct
                     out["context_remaining_pct"] = 100.0 - pct
     out.update(quota_fields)
+    if data.get("_codex_live"):
+        live = _external_payload(data)
+        # The current TUI's context survives compaction/model changes even
+        # before the matching token event has reached the rollout file.
+        for key in ("context_used_pct", "context_remaining_pct", "context_window_size"):
+            if key in live:
+                out[key] = live[key]
+        if "rate_limit_7d_pct" in live:
+            out["rate_limit_7d_pct"] = live["rate_limit_7d_pct"]
 
     out["model_id"] = out.get("model_id") or "unknown"
     out["display_name"] = out.get("display_name") or out["model_id"]

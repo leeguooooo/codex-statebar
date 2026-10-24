@@ -282,3 +282,31 @@ def test_probe_ignores_successful_empty_output(tmp_path, monkeypatch):
     monkeypatch.setattr(codex_launcher.subprocess, "run", lambda *a, **k:
                         SimpleNamespace(returncode=0, stdout="", stderr=""))
     assert codex_launcher._probe(tmp_path / "codex") is None
+
+
+def test_patched_launcher_enables_renderer_without_changing_native_config(tmp_path, monkeypatch):
+    import json
+    patched = codex_launcher.CodexBinary(tmp_path / 'codex-cxs', 'codex-cli 0.164.0', (0, 164, 0, 1), True)
+    monkeypatch.setattr(codex_launcher, 'inspect_install', lambda: codex_launcher.LaunchDecision(patched, patched, None, 'patched current'))
+    monkeypatch.setenv('CODEX_STATEBAR_ENTRYPOINT', '/installed/cxs')
+    calls = []
+    monkeypatch.setattr(codex_launcher.os, 'execve', lambda p, a, e: calls.append(e))
+    codex_launcher.launch([])
+    assert json.loads(calls[0]['CODEX_STATEBAR_STATUS_COMMAND']) == ['/installed/cxs', 'render']
+
+
+def test_official_fallback_does_not_inherit_external_command(tmp_path, monkeypatch):
+    official = codex_launcher.CodexBinary(tmp_path / 'codex', 'codex-cli 0.165.0', (0, 165, 0, 1), False)
+    monkeypatch.setattr(codex_launcher, 'inspect_install', lambda: codex_launcher.LaunchDecision(official, None, official, 'official newer'))
+    monkeypatch.setenv('CODEX_STATEBAR_STATUS_COMMAND', '["old", "render"]')
+    calls = []
+    monkeypatch.setattr(codex_launcher.os, 'execve', lambda p, a, e: calls.append(e))
+    codex_launcher.launch([])
+    assert 'CODEX_STATEBAR_STATUS_COMMAND' not in calls[0]
+
+
+def test_frozen_helper_uses_installed_entrypoint(tmp_path, monkeypatch):
+    monkeypatch.setattr(codex_launcher.sys, 'frozen', True, raising=False)
+    monkeypatch.setenv('CODEX_STATEBAR_ENTRYPOINT', '/installed/cxs')
+    assert codex_launcher.module_command('codex_statebar._git_refresh', '/repo') == [
+        '/installed/cxs', '-m', 'codex_statebar._git_refresh', '/repo']

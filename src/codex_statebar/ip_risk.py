@@ -188,8 +188,10 @@ def ensure_fresh(entry=None) -> None:
             try:
                 import subprocess
                 import sys
+                from .codex_launcher import module_command, independent_process_environment
                 subprocess.Popen(
-                    [sys.executable, "-m", "codex_statebar._ip_risk_refresh"],
+                    module_command("codex_statebar._ip_risk_refresh"),
+                    env=independent_process_environment(),
                     stdin=subprocess.DEVNULL,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,

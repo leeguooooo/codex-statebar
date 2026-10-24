@@ -231,7 +231,7 @@ def _extract_session_id(payload: bytes) -> str:
         d = json.loads(payload.decode("utf-8", errors="replace"))
     except (ValueError, json.JSONDecodeError):
         return "default"
-    sid = d.get("session_id") if isinstance(d, dict) else None
+    sid = (d.get("thread_id") or d.get("session_id")) if isinstance(d, dict) else None
     if not isinstance(sid, str) or not sid.strip():
         return "default"
     return sid
@@ -414,6 +414,8 @@ def render() -> int:
         # and rollout that triggered it.  The ~45 ms path is paid only on Codex
         # state changes and the payload is still persisted for doctor/preview.
         if os.environ.get("CODEX_STATUS_LINE") == "1":
+            from .maintenance import maintain_cache
+            maintain_cache()
             import io
             sys.stdin = io.StringIO(payload.decode("utf-8", errors="replace"))
             return _fallback_inline()

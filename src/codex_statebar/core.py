@@ -473,14 +473,15 @@ def relay_balance(env: Dict[str, str], *, spawn: bool = True):
                 child_env["CS_BALANCE_KEY"] = key
             if auth:
                 child_env["CS_BALANCE_AUTH"] = auth
+            from .codex_launcher import module_command, independent_process_environment
             subprocess.Popen(
-                [sys.executable, "-m", "codex_statebar._balance_refresh", base],
+                module_command("codex_statebar._balance_refresh", base),
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 close_fds=True,
                 start_new_session=True,
-                env=child_env,
+                env=independent_process_environment(child_env),
             )
         except (OSError, ValueError):
             balance_cache.clear_inflight(fp)
@@ -1086,6 +1087,9 @@ def main(json_output: bool = False,
     from ._display import terminal_width
     render_width = terminal_width()
     stdin_data = parse_stdin_data()
+    columns = stdin_data.get("terminal_columns")
+    if isinstance(columns, int) and 0 < columns <= 10000:
+        render_width = columns
 
     # No-quota mode (third-party relay / Bedrock / Vertex): official 5h/7d quota
     # is structurally unavailable. Suppress any cached quota that parse_stdin_data

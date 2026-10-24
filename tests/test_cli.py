@@ -196,3 +196,13 @@ def test_bare_project_flag_requires_setup(monkeypatch, capsys):
     assert exc.value.code == 2
     err = capsys.readouterr().err
     assert "--project" in err and "--setup" in err
+
+
+def test_internal_git_refresh_dispatch(monkeypatch):
+    import sys
+    from codex_statebar import cli, _git_refresh
+    calls = []
+    monkeypatch.setattr(sys, 'argv', ['cxs', '-m', 'codex_statebar._git_refresh', '/repo'])
+    monkeypatch.setattr(_git_refresh, 'main', lambda args: calls.append(args) or 0)
+    assert cli.main() == 0
+    assert calls == [['codex_statebar._git_refresh', '/repo']]

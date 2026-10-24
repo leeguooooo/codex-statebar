@@ -204,6 +204,19 @@ def _run_upgrade_subcommand():
 
 def main():
     """Main CLI entry point"""
+    if len(sys.argv) >= 3 and sys.argv[1] == "-m":
+        # Frozen helpers are launched through the persistent entrypoint, which
+        # leases their runtime and resets PyInstaller state across upgrades.
+        module = sys.argv[2]
+        if module == "codex_statebar._git_refresh":
+            from . import _git_refresh
+            return _git_refresh.main(sys.argv[2:])
+        if module == "codex_statebar._balance_refresh":
+            from . import _balance_refresh
+            return _balance_refresh.main(sys.argv[2:])
+        if module == "codex_statebar._ip_risk_refresh":
+            from . import _ip_risk_refresh
+            return _ip_risk_refresh.main()
     if len(sys.argv) >= 2 and sys.argv[1] == "_launch-codex":
         from .codex_launcher import launch
         return launch(sys.argv[2:])

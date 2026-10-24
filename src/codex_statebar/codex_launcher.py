@@ -40,15 +40,23 @@ class LaunchDecision:
     reason: str
 
 
-def independent_process_environment() -> dict[str, str]:
+def independent_process_environment(source=None) -> dict[str, str]:
     """Return an environment safe for processes independent of frozen cxs."""
-    environment = dict(os.environ)
+    environment = dict(os.environ if source is None else source)
     if getattr(sys, "frozen", False):
         for name in tuple(environment):
             if name.startswith("_PYI_"):
                 environment.pop(name, None)
         environment["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
     return environment
+
+
+def module_command(module: str, *arguments: str) -> list[str]:
+    """Frozen helpers enter through the installed launcher and acquire a runtime lease."""
+    executable = sys.executable
+    if getattr(sys, "frozen", False):
+        executable = os.environ.get("CODEX_STATEBAR_ENTRYPOINT") or executable
+    return [executable, "-m", module, *arguments]
 
 
 def _version_key(value: str) -> Optional[Tuple[int, int, int, int]]:
@@ -262,9 +270,18 @@ def launch(args: Sequence[str]) -> int:
     # its own child even though Codex is now between the two processes, and recent
     # bootloaders reject it because the immediate parent executable is different.
     # Mark later frozen descendants as independent before replacing this process.
+    environment = independent_process_environment()
+    environment.pop("CODEX_STATEBAR_STATUS_COMMAND", None)
+    if selected.patched:
+        import json
+        entrypoint = os.environ.get("CODEX_STATEBAR_ENTRYPOINT")
+        command = ([entrypoint, "render"] if entrypoint else
+                   ([sys.executable, "render"] if getattr(sys, "frozen", False) else
+                    [sys.executable, "-m", "codex_statebar", "render"]))
+        environment["CODEX_STATEBAR_STATUS_COMMAND"] = json.dumps(command)
     os.execve(
         str(selected.path),
         [str(selected.path), *args],
-        independent_process_environment(),
+        environment,
     )
     return 127

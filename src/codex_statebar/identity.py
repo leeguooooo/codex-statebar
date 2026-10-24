@@ -167,9 +167,10 @@ def dirty_with_async_refresh(toplevel: str) -> Optional[bool]:
         try:
             import subprocess  # lazy
             import sys
+            from .codex_launcher import module_command, independent_process_environment
             subprocess.Popen(
-                [sys.executable, "-m", "codex_statebar._git_refresh",
-                 toplevel],
+                module_command("codex_statebar._git_refresh", toplevel),
+                env=independent_process_environment(),
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
