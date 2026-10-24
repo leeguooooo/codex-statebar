@@ -22,7 +22,6 @@ NATIVE_ITEMS = (
     "current-dir",
     "git-branch",
     "context-remaining",
-    "five-hour-limit",
     "weekly-limit",
     "fast-mode",
 )

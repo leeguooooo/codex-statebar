@@ -61,3 +61,15 @@ def test_atomic_write_text_returns_false_on_readonly_dir(tmp_path):
         assert result is False
     finally:
         os.chmod(ro, 0o755)  # so pytest can clean up
+
+
+def test_keyboard_interrupt_does_not_leave_atomic_temp(tmp_path, monkeypatch):
+    target = tmp_path / 'state.json'
+    target.write_text('previous')
+    def interrupt(*_args, **_kwargs):
+        raise KeyboardInterrupt
+    monkeypatch.setattr(os, 'replace', interrupt)
+    with pytest.raises(KeyboardInterrupt):
+        atomic_write_text(target, 'next')
+    assert target.read_text() == 'previous'
+    assert list(tmp_path.glob('.*.tmp')) == []

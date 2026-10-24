@@ -483,6 +483,9 @@ def format_status_line(
     balance_pct=None,
     balance_amount="",
     quota_stale: bool = False,
+    _segments=None,
+    show_weekly: bool = True,
+    show_five_hour: bool = True,
 ):
     """Build the complete classic-style status line.
 
@@ -547,6 +550,8 @@ def format_status_line(
         if bypass:
             parts.append(colorize("⚠️BYPASS", _fg(theme.s_hot), use_color))
         separator = colorize(" | ", mute, use_color)
+        if _segments is not None:
+            _segments.extend(parts)
         return separator.join(parts)
 
     if quota_stale and msgs_pct is None and weekly_pct is None:
@@ -554,7 +559,8 @@ def format_status_line(
         # statusLine / dead daemon). Two blank `--%` bars read as "broken"; an
         # explicit, actionable hint tells the user it's stale and a restart
         # refreshes it (the diagnosis a Pro user otherwise had to dig for).
-        parts = [colorize("⟳ 5h/7d stale·restart", _fg(theme.s_warn), use_color)]
+        label = "5h/7d" if show_five_hour else "7d"
+        parts = [colorize(f"⟳ {label} stale·restart", _fg(theme.s_warn), use_color)]
         if ctx_pct is None:
             model_color = ink
         else:
@@ -571,6 +577,8 @@ def format_status_line(
         if bypass:
             parts.append(colorize("⚠️BYPASS", _fg(theme.s_hot), use_color))
         separator = colorize(" | ", mute, use_color)
+        if _segments is not None:
+            _segments.extend(parts)
         return separator.join(parts)
 
     # 5h/7d severity follows the projection (where usage is HEADED), falling
@@ -597,7 +605,7 @@ def format_status_line(
     # (projection off, or the early-window `→--` placeholder).
     if forecast_5h and projection_pct(projection_5h) is None:
         dim_5h += " " + _render_forecast(forecast_5h, theme, use_color)
-    parts = [dim_5h]
+    parts = [dim_5h] if show_five_hour else []
 
     dim_7d = _build_dimension("7d", weekly_pct, color_7d, use_color,
                               warning_threshold, critical_threshold, theme,
@@ -608,7 +616,8 @@ def format_status_line(
         dim_7d += " " + _render_projection(projection_7d, theme, use_color)
     if forecast_7d and projection_pct(projection_7d) is None:
         dim_7d += " " + _render_forecast(forecast_7d, theme, use_color)
-    parts.append(dim_7d)
+    if show_weekly:
+        parts.append(dim_7d)
 
     if ctx_pct is None:
         model_color = ink
@@ -632,4 +641,6 @@ def format_status_line(
         parts.append(colorize("⚠️BYPASS", _fg(theme.s_hot), use_color))
 
     separator = colorize(" | ", mute, use_color)
+    if _segments is not None:
+        _segments.extend(parts)
     return separator.join(parts)

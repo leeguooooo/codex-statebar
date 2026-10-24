@@ -127,10 +127,7 @@ def run() -> int:
         context = status.get("context_used_pct")
         _line("context", f"{float(context):.1f}% used" if context is not None else "missing",
               context is not None)
-        five = status.get("rate_limit_pct")
         weekly = status.get("rate_limit_7d_pct")
-        _line("5h limit", f"{five}% used" if five is not None else "not exposed for this account/model",
-              five is not None)
         _line("weekly limit", f"{weekly}% used" if weekly is not None else "not exposed",
               weekly is not None)
     except Exception as exc:

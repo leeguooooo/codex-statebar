@@ -33,7 +33,7 @@ def atomic_write_text(path: Path, text: str) -> bool:
                 os.fsync(f.fileno())
             os.replace(tmp, path)
             return True
-        except Exception:
+        except BaseException:
             try:
                 os.unlink(tmp)
             except OSError:

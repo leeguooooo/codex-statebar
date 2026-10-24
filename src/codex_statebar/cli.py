@@ -24,6 +24,7 @@ SUBCOMMANDS = (
     "watch",
     "daemon",
     "upgrade",
+    "gc",
 )
 
 
@@ -128,6 +129,7 @@ def _run_themes_subcommand():
 def _run_styles_subcommand():
     from .styles import list_styles
     descriptions = {
+        "aurora": "渐变进度条，独立显示上下文用量",
         "classic":  "原始样式（带 [bar] 与 | 分隔）",
         "capsule":  "胶囊样式 — 带底色的药丸，地铁标识感",
         "hairline": "极简线条 — 3 格小条 + 虚线分隔",
@@ -218,6 +220,14 @@ def main():
     if len(sys.argv) >= 2 and sys.argv[1] in SUBCOMMANDS:
         sub = sys.argv[1]
         rest = sys.argv[2:]
+        if sub == "gc":
+            if rest:
+                print("usage: cxs gc", file=sys.stderr)
+                return 2
+            from .maintenance import maintain_cache
+            maintain_cache(force=True)
+            print("Disposable cache maintenance finished.")
+            return 0
         if sub == "daemon":
             return _run_daemon_subcommand(rest)
         if sub == "upgrade":
@@ -280,25 +290,8 @@ def main():
             from .doctor import run as run_doctor
             return run_doctor()
         if sub == "watch":
-            import time
-            interval = 1.0
-            if "--interval" in rest:
-                try:
-                    interval = max(0.2, float(rest[rest.index("--interval") + 1]))
-                except (ValueError, IndexError):
-                    print("usage: cxs watch [--interval SECONDS]", file=sys.stderr)
-                    return 2
-            from .core import main as render_main
-            try:
-                while True:
-                    if sys.stdout.isatty():
-                        print("\x1b[2J\x1b[H", end="")
-                    render_main(use_color="NO_COLOR" not in os.environ,
-                                _suppress_side_effects=True)
-                    sys.stdout.flush()
-                    time.sleep(interval)
-            except KeyboardInterrupt:
-                return 0
+            from .watch import run
+            return run(rest)
         if sub == "install-commands":
             from .setup import install_commands, install_skills, COMMANDS_DIR, SKILLS_DIR
             force = "--force" in rest

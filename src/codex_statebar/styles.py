@@ -26,8 +26,8 @@ def _statusbar_version() -> str:
     global _VERSION_CACHE
     if _VERSION_CACHE is None:
         try:
-            import importlib.metadata as _m
-            _VERSION_CACHE = _m.version("codex-statebar")
+            from . import __version__
+            _VERSION_CACHE = __version__
         except Exception:
             _VERSION_CACHE = ""
     return _VERSION_CACHE
@@ -113,6 +113,142 @@ def _cache_severity(theme: Theme, cache_text: str) -> tuple:
     return theme.s_warn
 
 
+_AURORA_TOKENS_RE = _re.compile(r"\s*\([^()\n]*\)$")
+_AURORA_SECS_RE = _re.compile(r"(\d+)m\d+s$")
+
+
+def _aurora_cache_text(text: str) -> str:
+    """Drop the seconds once they stop mattering: `1h00m00s` → `1h00m`,
+    `59m12s` → `59m`. Under 10 minutes the seconds stay (`4m23s`)."""
+    m = _AURORA_SECS_RE.search(text)
+    if m and ("h" in text or int(m.group(1)) >= 10):
+        return text[:m.end(1)] + "m"
+    return text
+
+
+def render_aurora(
+    *, msgs_pct, weekly_pct, reset_5h, reset_7d, model,
+    lang_body="", cost_text="", cache_age_text="", bypass=False,
+    use_color=True, theme: Optional[Theme]=None,
+    warning_threshold=30.0, critical_threshold=70.0,
+    density: str = "regular",
+    bar_glyph: str = "block",
+    show_weekly: bool = True,
+    show_five_hour: bool = True,
+    ctx_pct: Optional[float] = None,
+    projection_5h: str = "",
+    projection_7d: str = "",
+    forecast_5h: str = "",
+    forecast_7d: str = "",
+    countdown_emoji: str = "",
+    no_quota: bool = False,
+    balance_text: str = "",
+    quota_stale: bool = False,
+    _segments=None,
+    **_ignored,
+) -> str:
+    from .progress import (window_severity_rgb, _blend, projection_pct,
+                           _render_projection, _render_forecast,
+                           CONTEXT_WARNING_THRESHOLD as _CW,
+                           CONTEXT_CRITICAL_THRESHOLD as _CC)
+    theme = theme or get_theme("graphite")
+    INK  = _fg(theme.ink)
+    MUTE = _fg(theme.mute)
+    EDGE = _fg(theme.edge)
+    cell = "━" if bar_glyph == "thin" else "■"
+
+    def bar(p, width):
+        # Each cell's color is fixed by its position along the bar, so a fuller
+        # bar literally reaches further into the red end of the spectrum.
+        if p is None:
+            return f"{EDGE}{'·' * width}{RESET}"
+        clamped = max(0.0, min(float(p), 100.0))
+        filled = int(clamped / 100 * width + 0.5)
+        if p > 0 and filled == 0:
+            filled = 1
+        out = ""
+        for i in range(width):
+            if i < filled:
+                t = i / (width - 1) if width > 1 else 0.0
+                rgb = (_blend(theme.s_ok, theme.s_warn, t * 2) if t < 0.5
+                       else _blend(theme.s_warn, theme.s_hot, (t - 0.5) * 2))
+                out += f"{_fg(rgb)}{cell}"
+            else:
+                out += f"{EDGE}{cell if use_color else '·'}"
+        return out + RESET
+
+    def pct_text(p, rgb):
+        if p is None:
+            return f"{MUTE}--%{RESET}"
+        col = _fg(rgb) if rgb is not None else INK
+        return f"{col}{BOLD}{int(round(p)):>2}%{RESET}"
+
+    def window(label, p, chip, forecast, reset, emoji=""):
+        rgb = window_severity_rgb(p, chip, theme,
+                                  warning_threshold, critical_threshold)
+        out = (f"{MUTE}{label}{RESET} {bar(p, 12)} {pct_text(p, rgb)} "
+               f"{EDGE}⏰{MUTE}{reset or '--'}{emoji}{RESET}")
+        if chip:
+            out += " " + _render_projection(chip, theme, True)
+        # Same rule as classic: a usable projection wins over the ⚠ forecast.
+        if forecast and projection_pct(chip) is None:
+            out += " " + _render_forecast(forecast, theme, True)
+        return out
+
+    pad = DENSITY_PAD.get(density, " ")
+    sep = f"{pad}{EDGE}│{RESET}{pad}"
+    parts = []
+
+    if no_quota:
+        rgb = _severity_color(theme, ctx_pct, _CW, _CC)
+        parts.append(f"{MUTE}ctx{RESET} {bar(ctx_pct, 12)} {pct_text(ctx_pct, rgb)}")
+    elif quota_stale and msgs_pct is None and weekly_pct is None:
+        label = "5h/7d" if show_five_hour else "7d"
+        parts.append(f"{_fg(theme.s_warn)}⟳ {label} stale·restart{RESET}")
+    else:
+        if show_five_hour:
+            parts.append(window("5h", msgs_pct, projection_5h, forecast_5h,
+                                reset_5h, countdown_emoji))
+        if show_weekly:
+            parts.append(window("7d", weekly_pct, projection_7d, forecast_7d,
+                                reset_7d))
+
+    # The mini bar carries context fill, so the `(70.0k/1.0M)` suffix is
+    # redundant here; no_quota already shows ctx as the lead segment.
+    # A rose between the hot and worktree hues — reads as "the model", never
+    # as a severity, and follows each theme's palette.
+    accent = _fg(_blend(theme.s_hot, theme.ink, 0.5))
+    if ctx_pct is not None and not no_quota:
+        name = _AURORA_TOKENS_RE.sub("", str(model))
+        rgb = _severity_color(theme, ctx_pct, _CW, _CC)
+        parts.append(f"{accent}{name}{RESET} {bar(ctx_pct, 6)} "
+                     f"{_fg(rgb)}{int(round(ctx_pct))}%{RESET}")
+    else:
+        parts.append(f"{accent}{model}{RESET}")
+
+    if balance_text:
+        parts.append(f"{_fg(theme.s_ok)}{balance_text}{RESET}")
+    if cost_text:
+        parts.append(f"{MUTE}$ {INK}{cost_text}{RESET}")
+
+    if lang_body:
+        parts.append(f"{MUTE}{lang_body}{RESET}")
+
+    if cache_age_text:
+        col = _fg(_cache_severity(theme, cache_age_text))
+        parts.append(f"{col}❄ {_aurora_cache_text(cache_age_text)}{RESET}")
+
+    if bypass:
+        parts.append(f"{_fg(theme.s_hot)}{BOLD}⚠ BYPASS{RESET}")
+
+    line = sep.join(parts)
+    if _segments is not None:
+        _segments.extend(parts if use_color else [_strip(part) for part in parts])
+    if not use_color:
+        return _strip(line)
+    return line
+
+
 # ---------------------------------------------------------------------------
 # Style: capsule
 # ---------------------------------------------------------------------------
@@ -123,11 +259,13 @@ def render_capsule(
     warning_threshold=30.0, critical_threshold=70.0,
     density: str = "regular",
     show_weekly: bool = True,
+    show_five_hour: bool = True,
     ctx_pct: Optional[float] = None,
     projection_5h: str = "",
     projection_7d: str = "",
     no_quota: bool = False,
     balance_text: str = "",
+    _segments=None,
     **_ignored,
 ) -> str:
     from .progress import window_severity_rgb
@@ -169,12 +307,12 @@ def render_capsule(
         )
         parts.append(pill(theme.pill_5h, ctx_body))
     else:
-        five_body = (
-            f"{BOLD}◷ 5H{RESET}{INK}{_bg(theme.pill_5h)} {pct_text(msgs_pct)} "
-            f"· {reset_5h}{sev_dot(msgs_pct, projection_5h)}{INK}{_bg(theme.pill_5h)}"
-        )
-        parts.append(pill(theme.pill_5h, five_body))
-
+        if show_five_hour:
+            five_body = (
+                f"{BOLD}◷ 5H{RESET}{INK}{_bg(theme.pill_5h)} {pct_text(msgs_pct)} "
+                f"· {reset_5h}{sev_dot(msgs_pct, projection_5h)}{INK}{_bg(theme.pill_5h)}"
+            )
+            parts.append(pill(theme.pill_5h, five_body))
         if show_weekly:
             week_body = (
                 f"{BOLD}☷ 7D{RESET}{INK}{_bg(theme.pill_7d)} {pct_text(weekly_pct)} "
@@ -210,10 +348,11 @@ def render_capsule(
         bg = _cache_severity(theme, cache_age_text)
         parts.append(pill(bg, f"cache {cache_age_text}"))
 
-    line = spacer.join(parts)
-
     if bypass:
-        line += f"  {_fg(theme.s_hot)}{BOLD}⚠ BYPASS{RESET}"
+        parts.append(f"{_fg(theme.s_hot)}{BOLD}⚠ BYPASS{RESET}")
+    line = spacer.join(parts)
+    if _segments is not None:
+        _segments.extend(parts if use_color else [_strip(p) for p in parts])
 
     if not use_color:
         return _strip(line)
@@ -230,11 +369,13 @@ def render_hairline(
     warning_threshold=30.0, critical_threshold=70.0,
     density: str = "regular",
     show_weekly: bool = True,
+    show_five_hour: bool = True,
     ctx_pct: Optional[float] = None,
     projection_5h: str = "",
     projection_7d: str = "",
     no_quota: bool = False,
     balance_text: str = "",
+    _segments=None,
     **_ignored,
 ) -> str:
     from .progress import window_severity_rgb
@@ -277,10 +418,11 @@ def render_hairline(
             f"{INK}{pct_text(ctx_pct)}{RESET}"
         )
     else:
-        parts.append(
-            f"{MUTE}› 5h{RESET} {mini3(msgs_pct, projection_5h)} {INK}{pct_text(msgs_pct)}{RESET} "
-            f"{MUTE}↺ {reset_5h}{RESET}"
-        )
+        if show_five_hour:
+            parts.append(
+                f"{MUTE}› 5h{RESET} {mini3(msgs_pct, projection_5h)} {INK}{pct_text(msgs_pct)}{RESET} "
+                f"{MUTE}↺ {reset_5h}{RESET}"
+            )
         if show_weekly:
             parts.append(
                 f"{MUTE}› 7d{RESET} {mini3(weekly_pct, projection_7d)} {INK}{pct_text(weekly_pct)}{RESET} "
@@ -316,6 +458,8 @@ def render_hairline(
         parts.append(f"{_fg(theme.s_hot)}{BOLD}⚠ BYPASS{RESET}")
 
     line = sep.join(parts)
+    if _segments is not None:
+        _segments.extend(parts if use_color else [_strip(p) for p in parts])
     if not use_color:
         return _strip(line)
     return line
@@ -341,6 +485,7 @@ def render_classic(
     balance_pct=None,
     balance_amount: str = "",
     quota_stale: bool = False,
+    _segments=None,
     **_ignored,
 ) -> str:
     from .progress import format_status_line, _fg, colorize, RESET
@@ -371,6 +516,9 @@ def render_classic(
         balance_pct=balance_pct,
         balance_amount=balance_amount,
         quota_stale=quota_stale,
+        _segments=_segments,
+        show_weekly=_ignored.get("show_weekly", True),
+        show_five_hour=_ignored.get("show_five_hour", True),
     )
     if cache_age_text:
         # Three-level severity: COLD red, <1m yellow, otherwise green.
@@ -382,7 +530,10 @@ def render_classic(
             col = _fg(theme.s_warn)
         mute = _fg(theme.mute)
         reset = RESET if use_color else ""  # don't leak a bare RESET in no-color mode
-        result += f"{reset}{colorize(' | ', mute, use_color)}{colorize(f'cache {cache_age_text}', col, use_color)}"
+        segment = colorize(f'cache {cache_age_text}', col, use_color)
+        result += f"{reset}{colorize(' | ', mute, use_color)}{segment}"
+        if _segments is not None:
+            _segments.append(segment)
     return result
 
 
@@ -805,6 +956,7 @@ def render_mode_line(*, effort: str = "", thinking=None, fast=None,
 
 
 RENDERERS = {
+    "aurora": render_aurora,
     "classic":  render_classic,
     "capsule":  render_capsule,
     "hairline": render_hairline,
@@ -828,6 +980,7 @@ def render(style: str, **kwargs) -> str:
     append an 'activity' line (todos / active tool / session stats) plus one
     bottom line per running subagent. All extra lines are style-agnostic.
     """
+    max_width = kwargs.pop("max_width", None)
     show_pb = kwargs.pop("show_project_branch", False)
     info = kwargs.pop("identity", None)
     dirty = kwargs.pop("identity_dirty", None)
@@ -855,7 +1008,22 @@ def render(style: str, **kwargs) -> str:
     use_color = kwargs.get("use_color", True)
 
     fn = RENDERERS.get(style, render_classic)
-    out = fn(**kwargs)
+    from ._display import clip_lines, visible_width
+    parts = []
+    out = fn(**kwargs, _segments=parts)
+    if max_width is not None and max_width > 0 and visible_width(out) > max_width:
+        # Pack whole segments; only an individually oversized segment is clipped.
+        sep = " | " if fn is render_classic else " │ "
+        rows, row = [], ""
+        for part in parts or [out]:
+            if row and visible_width(row + sep + part) > max_width:
+                rows.append(row)
+                row = part
+            else:
+                row = row + sep + part if row else part
+        if row:
+            rows.append(row)
+        out = "\n".join(rows)
 
     if show_pb and info is not None:
         version_text = _statusbar_version() if show_version else ""
@@ -917,7 +1085,7 @@ def render(style: str, **kwargs) -> str:
             for agline in render_agent_lines(
                     activity.agents, theme=theme, use_color=use_color):
                 out = out + "\n" + agline
-    return out
+    return clip_lines(out, max_width)
 
 
 def list_styles() -> list[str]:

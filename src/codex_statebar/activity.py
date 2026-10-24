@@ -305,8 +305,11 @@ def read_activity(transcript_path: str,
                      ones (run_in_background) finish via a queue-operation
                      `enqueue` whose content carries their <tool-use-id>.
     """
-    normalized_path = str(transcript_path).replace("\\", "/")
-    if "/.codex/sessions/" in normalized_path or "/sessions/" in normalized_path:
+    # Detect the actual format, including archived/exported Codex rollouts.
+    # A Claude transcript may also live in a directory called sessions.
+    first = next(_iter_entries_reverse(transcript_path), {})
+    if isinstance(first, dict) and first.get("type") in {
+            "session_meta", "turn_context", "response_item", "event_msg", "compacted"}:
         return _read_codex_activity(transcript_path, now=now)
 
     now = now or datetime.now(timezone.utc)
@@ -407,6 +410,7 @@ def _codex_input(value: Any) -> Dict[str, Any]:
 
 
 def _codex_tool_name(name: str) -> str:
+    name = name.rsplit(".", 1)[-1]
     aliases = {
         "exec": "Bash",
         "exec_command": "Bash",
@@ -426,6 +430,9 @@ def _read_codex_activity(transcript_path: str,
     completed: Dict[str, int] = {}
     completed_total = 0
     todos_found = False
+    turn_closed = False
+    lifecycle_seen = False
+    past_current_turn = False
 
     for entry in _iter_entries_reverse(transcript_path):
         payload = entry.get("payload")
@@ -433,6 +440,14 @@ def _read_codex_activity(transcript_path: str,
             continue
         event_type = entry.get("type")
         payload_type = payload.get("type")
+
+        if (event_type == "event_msg" and not lifecycle_seen
+                and payload_type in ("task_started", "task_complete", "task_aborted", "turn_aborted")):
+            turn_closed = payload_type != "task_started"
+            lifecycle_seen = True
+        if (event_type == "turn_context" or
+                (event_type == "event_msg" and payload_type == "task_started")):
+            past_current_turn = True
 
         if event_type == "response_item" and payload_type in (
                 "custom_tool_call_output", "function_call_output"):
@@ -456,7 +471,7 @@ def _read_codex_activity(transcript_path: str,
                 "custom_tool_call", "function_call"):
             continue
 
-        raw_name = str(payload.get("name") or "tool")
+        raw_name = str(payload.get("name") or "tool").rsplit(".", 1)[-1]
         display = _codex_tool_name(raw_name)
         call_id = payload.get("call_id") or payload.get("id")
         inp = _codex_input(payload.get("input", payload.get("arguments")))
@@ -472,8 +487,8 @@ def _read_codex_activity(transcript_path: str,
                 todos_found = True
             continue
 
-        if raw_name in ("spawn_agent", "collaboration.spawn_agent"):
-            if not is_done and len(info.agents) < _MAX_AGENTS:
+        if raw_name == "spawn_agent":
+            if not past_current_turn and not turn_closed and not is_done and len(info.agents) < _MAX_AGENTS:
                 started = _parse_ts(entry.get("timestamp", ""))
                 elapsed = max(0.0, (now - started).total_seconds()) if started else 0.0
                 info.agents.append({
@@ -489,7 +504,7 @@ def _read_codex_activity(transcript_path: str,
             if completed_total < _RECENT_TOOLS_CAP:
                 completed[display] = completed.get(display, 0) + 1
                 completed_total += 1
-        elif info.active_tool is None:
+        elif not past_current_turn and not turn_closed and info.active_tool is None:
             info.active_tool = (display, extract_target(display, inp))
 
     info.completed_counts = sorted(completed.items(), key=lambda item: -item[1])

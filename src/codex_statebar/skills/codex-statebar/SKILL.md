@@ -11,12 +11,14 @@ Use `cxs` for Codex CLI status-bar requests. Prefer commands over editing
 | Intent | Command |
 |---|---|
 | Render current session | `cxs` |
-| Live dashboard | `cxs watch` |
+| Live dashboard | `cxs watch --style aurora` |
+| Pin a dashboard to a thread | `cxs watch --session <thread-id>` |
 | Diagnose | `cxs doctor` |
+| Reclaim disposable cxs cache | `cxs gc` |
 | Configure Codex native fallback | `cxs --setup` |
 | Inspect config | `cxs config show` |
 | Switch theme | `cxs config set theme <name>` |
-| Switch style | `cxs config set style <classic\|capsule\|hairline>` |
+| Switch style | `cxs config set style <aurora\|classic\|capsule\|hairline>` |
 | Change density | `cxs config set density <compact\|regular\|cozy>` |
 | Preview combinations | `cxs preview` |
 | List themes/styles | `cxs themes` / `cxs styles` |

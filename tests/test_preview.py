@@ -169,3 +169,10 @@ def test_preview_classic_varies_by_theme(capsys, monkeypatch):
     assert "Opus" in out_g and "Opus" in out_l
     # The two themes must produce different ANSI (the regression).
     assert out_g != out_l
+
+
+def test_preview_hides_five_hour_in_header_and_all_styles():
+    rc, out = _run()
+    assert rc == 0
+    assert '5h' not in out.lower()
+    assert '7d' in out.lower()

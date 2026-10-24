@@ -60,7 +60,7 @@ def test_repeated_launches_reuse_runtime_and_preserve_args(launcher):
         assert result.returncode == 0, result.stderr
     after = executable.stat()
     assert (before.st_ino, before.st_mtime_ns) == (after.st_ino, after.st_mtime_ns)
-    assert {p.name for p in cache.iterdir()} == {digest, digest + ".lock"}
+    assert {p.name for p in cache.iterdir()} == {digest, digest + ".lock", ".maintenance.lock"}
     assert (cache / digest / "_internal/current").is_symlink()
 
 
@@ -69,7 +69,7 @@ def test_concurrent_cold_starts_publish_only_one_runtime(launcher):
     with ThreadPoolExecutor(max_workers=12) as pool:
         results = list(pool.map(lambda _: run(launcher), range(24)))
     assert all(r.returncode == 0 for r in results), [r.stderr for r in results]
-    assert {p.name for p in cache.iterdir()} == {digest, digest + ".lock"}
+    assert {p.name for p in cache.iterdir()} == {digest, digest + ".lock", ".maintenance.lock"}
     assert (cache / digest / ".complete").is_file()
 
 
@@ -106,7 +106,7 @@ def test_forced_exit_does_not_create_another_runtime(launcher):
     result = run(launcher)
     assert result.returncode == 0, result.stderr
     assert (cache / digest / "cxs").stat().st_ino == inode
-    assert {p.name for p in cache.iterdir()} == {digest, digest + ".lock"}
+    assert {p.name for p in cache.iterdir()} == {digest, digest + ".lock", ".maintenance.lock"}
 
 
 def test_cached_runtime_does_not_require_writable_cache(launcher):
@@ -148,3 +148,76 @@ def test_legacy_single_member_upgrade_installs_complete_runtime(launcher, tmp_pa
                             capture_output=True, text=True, timeout=15)
     assert result.returncode == 0, result.stderr
     assert result.stdout.splitlines() == ["runtime-ok", str(destination), "--version"]
+
+
+def fake_runtime(cache, name):
+    directory = cache / name
+    directory.mkdir(parents=True)
+    (directory / '.lease-v1').touch()
+    (directory / '.complete').touch()
+    return directory
+
+
+def test_upgrade_gc_preserves_live_lease_and_one_rollback(launcher):
+    import fcntl
+    entry, cache, digest, env = launcher
+    cache.mkdir(parents=True)
+    old1, old2, live = '1' * 64, '2' * 64, '3' * 64
+    for name in (old1, old2, live):
+        fake_runtime(cache, name)
+    # Equal timestamps are deliberately deterministic: the newer rollback
+    # name wins the tie; a held lease must never become a GC candidate.
+    for name in (old1, old2, live):
+        os.utime(cache / name, (100, 100))
+    with (cache / (live + '.lock')).open('w') as holder:
+        fcntl.flock(holder, fcntl.LOCK_SH)
+        assert run(launcher).returncode == 0
+        assert (cache / live).is_dir()
+        assert (cache / old2).is_dir()
+        assert not (cache / old1).exists()
+    assert run(launcher).returncode == 0
+    assert (cache / live).is_dir()
+    assert not (cache / old2).exists()
+    assert {p.name for p in cache.iterdir() if p.is_dir()} == {digest, live}
+
+
+def test_running_program_keeps_lease_across_exec(launcher):
+    import fcntl
+    entry, cache, digest, env = launcher
+    process = subprocess.Popen([str(entry), '--hold'], env=env,
+                               stdout=subprocess.PIPE, text=True)
+    try:
+        assert process.stdout.readline().strip() == 'runtime-ok'
+        with (cache / (digest + '.lock')).open('w') as contender:
+            with pytest.raises(BlockingIOError):
+                fcntl.flock(contender, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    finally:
+        process.kill()
+        process.wait(timeout=5)
+        process.stdout.close()
+
+
+def test_upgrade_cleans_other_abandoned_stage_and_orphan_lock(launcher):
+    entry, cache, digest, env = launcher
+    other = '4' * 64
+    stage = cache / (other + '.staging')
+    stage.mkdir(parents=True)
+    (stage / 'partial').write_bytes(b'x' * 1024)
+    (cache / (other + '.lock')).touch()
+    assert run(launcher).returncode == 0
+    assert not stage.exists()
+    assert not (cache / (other + '.lock')).exists()
+
+
+def test_gc_does_not_delete_stage_while_extractor_holds_lock(launcher):
+    import fcntl
+    entry, cache, digest, env = launcher
+    other = '5' * 64
+    stage = cache / (other + '.staging')
+    stage.mkdir(parents=True)
+    with (cache / (other + '.lock')).open('w') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        assert run(launcher).returncode == 0
+        assert stage.is_dir()
+    assert run(launcher).returncode == 0
+    assert not stage.exists()

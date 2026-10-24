@@ -137,9 +137,10 @@ def run(use_color: bool = True, theme_filter: Optional[str] = None,
 
     print()
     print(f"  {OK}● 数据源{R}：{src_label}")
-    print(f"  {DIM}5h={data['msgs_pct']}% · 7d={data['weekly_pct']}% · {data['model']}{R}")
+    print(f"  {DIM}7d={data['weekly_pct']}% · {data['model']}{R}")
 
     style_titles = {
+        "aurora": "00 · AURORA（渐变进度条）",
         "classic":  "01 · CLASSIC（原版）",
         "capsule":  "02 · CAPSULE（胶囊）",
         "hairline": "03 · HAIRLINE（极简线条）",
@@ -178,7 +179,7 @@ def run(use_color: bool = True, theme_filter: Optional[str] = None,
                 lang_body="",
                 cost_text=data.get("cost_text", ""),
                 cache_age_text=data.get("cache_age_text", ""),
-                bypass=False,
+                bypass=False, show_five_hour=False,
                 use_color=use_color,
                 warning_threshold=30.0, critical_threshold=70.0,
                 activity=data.get("activity"), activity_opts=act_opts,
@@ -194,7 +195,7 @@ def run(use_color: bool = True, theme_filter: Optional[str] = None,
                 lang_body="",
                 cost_text=data.get("cost_text", ""),
                 cache_age_text=data.get("cache_age_text", ""),
-                bypass=False,
+                bypass=False, show_five_hour=False,
                 use_color=use_color,
                 warning_threshold=30.0, critical_threshold=70.0,
                 activity=data.get("activity"), activity_opts=act_opts,

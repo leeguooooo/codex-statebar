@@ -17,3 +17,10 @@ def _isolate_rate_latest(tmp_path, monkeypatch):
         monkeypatch.setattr(predict, "account_id", lambda: None)
     except Exception:
         pass
+
+
+@pytest.fixture(autouse=True)
+def _isolate_maintenance(tmp_path, monkeypatch):
+    from codex_statebar import maintenance
+    monkeypatch.setattr(maintenance, "_default_root", lambda: tmp_path / "maintenance-cache")
+    monkeypatch.setattr(maintenance, "_last_run", 0.0)

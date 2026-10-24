@@ -562,8 +562,12 @@ def _render_all_sessions() -> int:
 # ---------------------------------------------------------------------------
 def _log(msg: str) -> None:
     try:
-        with open(log_path(), "a", encoding="utf-8") as f:
-            f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {msg}\n")
+        path = log_path()
+        entry = f"{time.strftime('%Y-%m-%d %H:%M:%S')} {msg[:4096]}\n"
+        if path.exists() and path.stat().st_size + len(entry.encode("utf-8")) > 1024 * 1024:
+            os.replace(path, path.with_suffix(".log.1"))
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(entry)
     except OSError:
         pass
 
@@ -643,6 +647,8 @@ def run_forever(render_interval: float = DEFAULT_RENDER_INTERVAL) -> int:
                     pass
             if t0 - last_maint > GC_INTERVAL_S:
                 _gc_orphan_tmp_files()
+                from .maintenance import maintain_cache
+                maintain_cache()
                 # The daemon is the long-lived process, so it owns the periodic
                 # auto-update check (the per-render path suppresses side effects
                 # in daemon mode). check_for_updates is 24h-throttled and only

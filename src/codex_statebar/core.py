@@ -285,6 +285,7 @@ def parse_stdin_data() -> Dict[str, Any]:
             sys.stdin = previous
     # Keep this compatibility key while the mature renderer is shared with the
     # Claude implementation. Codex-specific code should use codex_version.
+    result["_is_codex"] = True
     result["claude_version"] = result.get("codex_version", "")
     return result
 
@@ -1082,6 +1083,8 @@ def main(json_output: bool = False,
         except OSError:
             pass
 
+    from ._display import terminal_width
+    render_width = terminal_width()
     stdin_data = parse_stdin_data()
 
     # No-quota mode (third-party relay / Bedrock / Vertex): official 5h/7d quota
@@ -1354,7 +1357,7 @@ def main(json_output: bool = False,
                 }))
             else:
                 print(_render_style(
-                    chosen_style,
+                    chosen_style, max_width=render_width, show_five_hour=not (stdin_data.get("_is_codex") or stdin_data.get("rollout_path") or stdin_data.get("codex_version")),
                     msgs_pct=None, weekly_pct=None,
                     reset_5h="--", reset_7d="",
                     model=model, lang_body=lang_body, cost_text=cost_text,
@@ -1424,7 +1427,6 @@ def main(json_output: bool = False,
                 print(json.dumps({
                     "success": True, "source": "official",
                     "rate_limits": {
-                        "five_hour": {"used_percentage": msgs_pct, "reset_time": reset_time},
                         "seven_day": {"used_percentage": weekly_pct, "reset_time": reset_time_7d},
                     },
                     "meta": {"model": model_id, "display_name": display_name,
@@ -1483,7 +1485,7 @@ def main(json_output: bool = False,
                         forecast_kwargs = {}
 
                 print(_render_style(
-                    chosen_style,
+                    chosen_style, max_width=render_width, show_five_hour=not (stdin_data.get("_is_codex") or stdin_data.get("rollout_path") or stdin_data.get("codex_version")),
                     msgs_pct=msgs_pct, weekly_pct=weekly_pct,
                     reset_5h=reset_time, reset_7d=reset_time_7d,
                     model=model, lang_body=lang_body, cost_text=cost_text,
@@ -1541,7 +1543,7 @@ def main(json_output: bool = False,
                     }))
                 else:
                     print(_render_style(
-                        chosen_style,
+                        chosen_style, max_width=render_width, show_five_hour=not (stdin_data.get("_is_codex") or stdin_data.get("rollout_path") or stdin_data.get("codex_version")),
                         msgs_pct=None, weekly_pct=None,
                         reset_5h="--", reset_7d="",
                         model=model, lang_body=lang_body, cost_text=cost_text,
@@ -1582,7 +1584,7 @@ def main(json_output: bool = False,
             print(json.dumps({"success": False, "error": str(e)}))
         else:
             print(_render_style(
-                chosen_style,
+                chosen_style, max_width=render_width, show_five_hour=not (stdin_data.get("_is_codex") or stdin_data.get("rollout_path") or stdin_data.get("codex_version")),
                 msgs_pct=None, weekly_pct=None,
                 reset_5h=reset_time, reset_7d="",
                 model=display_name, lang_body=lang_body, cost_text=cost_text,

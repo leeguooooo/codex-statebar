@@ -23,8 +23,8 @@ SAMPLE = dict(
 )
 
 
-def test_three_builtin_styles():
-    assert set(list_styles()) == {"classic", "capsule", "hairline"}
+def test_builtin_styles():
+    assert set(list_styles()) == {"aurora", "classic", "capsule", "hairline"}
 
 
 def test_builtin_themes():

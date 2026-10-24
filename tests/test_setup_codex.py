@@ -59,3 +59,8 @@ def test_setup_is_idempotent(tmp_path):
 
 def test_project_path_uses_dot_codex(tmp_path):
     assert setup.project_settings_path(tmp_path) == tmp_path / ".codex/config.toml"
+
+
+def test_native_items_do_not_show_five_hour_limit():
+    assert 'five-hour-limit' not in setup.NATIVE_ITEMS
+    assert 'weekly-limit' in setup.NATIVE_ITEMS

@@ -1,4 +1,5 @@
 import json
+import pytest
 import io
 import sys
 from pathlib import Path
@@ -132,3 +133,64 @@ def test_persisted_codex_payload_with_cs_env_still_reads_rollout(
     assert status["rate_limit_7d_pct"] == 34.0
     assert status["context_used_pct"] == 25.0
     assert status["context_window_size"] == 200000
+
+
+def test_exact_session_miss_never_falls_back_to_cwd(tmp_path, monkeypatch):
+    home = tmp_path / '.codex'
+    path = home / 'sessions/rollout-thread-1.jsonl'
+    _write_rollout(path, str(tmp_path))
+    monkeypatch.setenv('CODEX_HOME', str(home))
+    assert rollout.find_rollout('missing', str(tmp_path)) is None
+    assert rollout.find_rollout('*', str(tmp_path)) is None
+    assert rollout.find_rollout('1', str(tmp_path)) is None
+    assert rollout.find_rollout(cwd=str(tmp_path), explicit_path='/missing') is None
+
+
+def test_context_survives_quota_only_event(tmp_path, monkeypatch):
+    home = tmp_path / '.codex'
+    path = home / 'sessions/rollout-thread-1.jsonl'
+    _write_rollout(path, str(tmp_path))
+    monkeypatch.setenv('CODEX_HOME', str(home))
+    with path.open('a') as f:
+        f.write(json.dumps({'type': 'event_msg', 'payload': {
+            'type': 'token_count', 'info': None,
+            'rate_limits': {'primary': {'used_percent': 20,
+                            'window_minutes': 300, 'resets_at': 2000000000}},
+        }}) + '\n')
+    status = rollout.collect_status({'thread_id': 'thread-1'})
+    assert status['context_used_pct'] == 25
+    assert status['rate_limit_pct'] == 20
+    assert status['rate_limit_7d_pct'] == 34
+
+
+def test_expired_quota_is_unknown_instead_of_zero(tmp_path, monkeypatch):
+    home = tmp_path / '.codex'
+    path = home / 'sessions/rollout-thread-1.jsonl'
+    _write_rollout(path, str(tmp_path))
+    monkeypatch.setenv('CODEX_HOME', str(home))
+    with path.open('a') as f:
+        f.write(json.dumps({'type': 'event_msg', 'payload': {
+            'type': 'token_count', 'rate_limits': {'primary': {
+                'used_percent': 75, 'window_minutes': 300, 'resets_at': 1}},
+        }}) + '\n')
+    status = rollout.collect_status({'thread_id': 'thread-1'})
+    assert status['rate_limit_pct'] is None
+    assert status['rate_limit_7d_pct'] == 34
+
+
+@pytest.mark.parametrize('value', [None, 'bad', float('nan'), float('inf'), -1, 1000000000])
+def test_invalid_quota_cannot_break_render(value):
+    fields = rollout._rate_limit_fields({'primary': {
+        'used_percent': value, 'window_minutes': 300}})
+    assert 'rate_limit_pct' not in fields
+
+
+def test_empty_usage_object_preserves_last_context(tmp_path, monkeypatch):
+    home = tmp_path / '.codex'
+    path = home / 'sessions/rollout-thread-1.jsonl'
+    _write_rollout(path, str(tmp_path))
+    monkeypatch.setenv('CODEX_HOME', str(home))
+    with path.open('a') as f:
+        f.write(json.dumps({'type': 'event_msg', 'payload': {
+            'type': 'token_count', 'info': {'last_token_usage': {}}}}) + '\n')
+    assert rollout.collect_status({'thread_id': 'thread-1'})['context_used_pct'] == 25

@@ -98,7 +98,6 @@ def _build_launchd_plist(cs_path: str) -> str:
     launchctl rejects.
     """
     cs_esc = _xml_escape(cs_path)
-    home_esc = _xml_escape(str(Path.home()))
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -121,9 +120,9 @@ def _build_launchd_plist(cs_path: str) -> str:
     <key>ThrottleInterval</key>
     <integer>10</integer>
     <key>StandardOutPath</key>
-    <string>{home_esc}/.cache/codex-statebar/daemon.stdout.log</string>
+    <string>/dev/null</string>
     <key>StandardErrorPath</key>
-    <string>{home_esc}/.cache/codex-statebar/daemon.stderr.log</string>
+    <string>/dev/null</string>
 </dict>
 </plist>
 """
@@ -224,8 +223,8 @@ Type=simple
 ExecStart={cs_quoted} daemon _run
 Restart=on-failure
 RestartSec=5
-StandardOutput=append:%h/.cache/codex-statebar/daemon.stdout.log
-StandardError=append:%h/.cache/codex-statebar/daemon.stderr.log
+StandardOutput=null
+StandardError=null
 
 [Install]
 WantedBy=default.target

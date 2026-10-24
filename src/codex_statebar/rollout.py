@@ -8,6 +8,7 @@ It never reads ``auth.json`` and never sends prompt or session data anywhere.
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import sys
@@ -49,7 +50,7 @@ def _tail(path: Path) -> bytes:
 def _meta(path: Path) -> dict:
     try:
         with path.open("rb") as handle:
-            raw = handle.readline()
+            raw = handle.readline(TAIL_BYTES)
         event = json.loads(raw)
         if event.get("type") == "session_meta":
             payload = event.get("payload")
@@ -95,17 +96,20 @@ def _rollout_roots() -> Iterable[Path]:
 def _rollout_files(root: Path, *, recent_only: bool = False) -> Iterable[Path]:
     """Yield newest rollouts first for both nested and flat Codex stores."""
     try:
-        files = root.rglob("rollout-*.jsonl")
-        ordered = sorted(files, key=lambda path: path.stat().st_mtime,
-                         reverse=True)
-        if not recent_only:
-            yield from ordered
-            return
+        import heapq
         cutoff = time.time() - RECENT_ROLLOUT_SECONDS
-        for index, path in enumerate(ordered):
-            if index >= MAX_RECENT_ROLLOUTS or path.stat().st_mtime < cutoff:
-                break
-            yield path
+        def candidates():
+            for path in root.rglob("rollout-*.jsonl"):
+                try:
+                    modified = path.stat().st_mtime
+                except OSError:
+                    continue
+                if not recent_only or modified >= cutoff:
+                    yield modified, path
+        # Discovery memory stays bounded even after years of session history.
+        ordered = (heapq.nlargest(MAX_RECENT_ROLLOUTS, candidates()) if recent_only
+                   else sorted(candidates(), reverse=True))
+        yield from (path for _, path in ordered)
     except OSError:
         return
 
@@ -128,15 +132,24 @@ def find_rollout(thread_id: str = "", cwd: str = "",
         path = Path(explicit_path).expanduser()
         if path.is_file():
             return path
+        return None
 
     roots = list(_rollout_roots())
     if not roots:
         return None
     if thread_id:
-        matches = [path for root in roots
-                   for path in root.rglob(f"*{thread_id}*.jsonl")]
+        # IDs are data, never glob expressions. A miss must not select a
+        # different session just because it happens to share the cwd.
+        matches = []
+        for root in roots:
+            for path in root.rglob("rollout-*.jsonl"):
+                if path.name.endswith(f"-{thread_id}.jsonl"):
+                    meta = _meta(path)
+                    if (meta.get("id") or meta.get("session_id")) == thread_id:
+                        matches.append(path)
         if matches:
             return max(matches, key=lambda p: p.stat().st_mtime)
+        return None
 
     try:
         wanted = str(Path(cwd or os.getcwd()).expanduser().resolve())
@@ -188,13 +201,15 @@ def _external_payload(data: dict) -> Dict[str, Any]:
 
     context = data.get("context") or data.get("context_window")
     if isinstance(context, dict):
-        used_pct = context.get("used_percent", context.get("used_percentage"))
+        used_pct = _finite_number(context.get("used_percent", context.get("used_percentage")))
+        if used_pct is not None:
+            used_pct = min(100.0, max(0.0, used_pct))
         out["context_used_pct"] = used_pct
         if isinstance(used_pct, (int, float)):
             out["context_remaining_pct"] = max(0.0, 100.0 - float(used_pct))
-        out["context_window_size"] = context.get(
-            "window_tokens", context.get("context_window_size"))
-        out["total_input_tokens"] = context.get("used_tokens")
+        out["context_window_size"] = _finite_number(context.get(
+            "window_tokens", context.get("context_window_size")))
+        out["total_input_tokens"] = _finite_number(context.get("used_tokens"))
 
     limits = data.get("limits")
     if isinstance(limits, dict):
@@ -202,10 +217,21 @@ def _external_payload(data: dict) -> Dict[str, Any]:
                             ("seven_day", "_7d")):
             window = limits.get(key)
             if isinstance(window, dict):
-                out[f"rate_limit{suffix}_pct"] = window.get(
-                    "used_percent", window.get("used_percentage"))
-                out[f"rate_limit{suffix}_resets_at"] = window.get("resets_at")
+                fields = _rate_limit_fields({"primary": {
+                    "used_percent": window.get("used_percent", window.get("used_percentage")),
+                    "window_minutes": 10080 if suffix else 300,
+                    "resets_at": window.get("resets_at"),
+                }})
+                out.update(fields)
     return {k: v for k, v in out.items() if v is not None and v != ""}
+
+
+def _finite_number(value: Any) -> Optional[float]:
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return number if math.isfinite(number) and number >= 0 else None
 
 
 def _rate_limit_fields(rate_limits: dict) -> Dict[str, Any]:
@@ -216,8 +242,10 @@ def _rate_limit_fields(rate_limits: dict) -> Dict[str, Any]:
             continue
         try:
             minutes = int(window.get("window_minutes") or 0)
-            pct = max(0.0, float(window.get("used_percent") or 0.0))
-        except (TypeError, ValueError):
+            pct = float(window["used_percent"])
+            if not math.isfinite(pct) or pct < 0 or pct >= 100000:
+                continue
+        except (KeyError, TypeError, ValueError, OverflowError):
             continue
         if 240 <= minutes <= 360:
             suffix = ""
@@ -225,14 +253,27 @@ def _rate_limit_fields(rate_limits: dict) -> Dict[str, Any]:
             suffix = "_7d"
         else:
             continue
-        out[f"rate_limit{suffix}_pct"] = pct
-        out[f"rate_limit{suffix}_resets_at"] = window.get("resets_at")
+        reset = window.get("resets_at")
+        try:
+            reset = float(reset) if reset is not None else None
+            if reset is not None and not math.isfinite(reset):
+                reset = None
+        except (TypeError, ValueError, OverflowError):
+            reset = None
+        out[f"rate_limit{suffix}_pct"] = (
+            None if reset is not None and reset <= time.time() else pct)
+        out[f"rate_limit{suffix}_resets_at"] = reset
     return out
 
 
 def collect_status(data: Optional[dict] = None) -> Dict[str, Any]:
     data = data if isinstance(data, dict) else {}
     out = _external_payload(data)
+    if out:
+        out["_has_stdin"] = True
+    session_env = data.get("_cs_env")
+    if isinstance(session_env, dict):
+        out["_session_env"] = {str(k): str(v) for k, v in session_env.items()}
     thread_id = str(out.get("session_id") or
                     os.environ.get("CODEX_STATEBAR_THREAD_ID") or "")
     cwd = str(out.get("workspace_current_dir") or data.get("cwd") or os.getcwd())
@@ -258,19 +299,33 @@ def collect_status(data: Optional[dict] = None) -> Dict[str, Any]:
             out[key] = value
 
     token_event: Optional[dict] = None
+    quota_fields: Dict[str, Any] = {}
     turn_event: Optional[dict] = None
-    events = list(_json_lines(_tail(path)))
+    try:
+        events = list(_json_lines(_tail(path)))
+    except OSError:
+        return out
     for event in reversed(events):
         payload = event.get("payload")
         if not isinstance(payload, dict):
             continue
-        if (token_event is None and event.get("type") == "event_msg"
+        if (event.get("type") == "event_msg"
                 and payload.get("type") == "token_count"):
-            token_event = payload
+            info = payload.get("info")
+            if (token_event is None and isinstance(info, dict)
+                    and isinstance(info.get("last_token_usage"), dict)
+                    and _finite_number(info["last_token_usage"].get("total_tokens")) is not None):
+                token_event = payload
+            limits = payload.get("rate_limits")
+            if isinstance(limits, dict):
+                for key, value in _rate_limit_fields(limits).items():
+                    quota_fields.setdefault(key, value)
+                if limits.get("plan_type"):
+                    quota_fields.setdefault("plan_type", limits["plan_type"])
         elif turn_event is None and event.get("type") == "turn_context":
             turn_event = payload
-        if token_event is not None and turn_event is not None:
-            break
+        # Context and quota updates are independent. Keep scanning within the
+        # bounded tail to recover a window omitted by a later token event.
 
     if turn_event:
         for key, value in (
@@ -297,23 +352,20 @@ def collect_status(data: Optional[dict] = None) -> Dict[str, Any]:
                     total = max(0, int(usage.get("total_tokens") or 0))
                     input_tokens = max(0, int(usage.get("input_tokens") or 0))
                     output_tokens = max(0, int(usage.get("output_tokens") or 0))
-                except (TypeError, ValueError):
+                except (TypeError, ValueError, OverflowError):
                     cached = total = input_tokens = output_tokens = 0
                 used = total
-                window = info.get("model_context_window") or meta.get("context_window") or 0
+                window = _finite_number(info.get("model_context_window") or meta.get("context_window")) or 0
                 out["context_window_size"] = window
                 out["cached_input_tokens"] = cached
                 out["billable_input_tokens"] = max(0, input_tokens - cached)
                 out["total_input_tokens"] = input_tokens
                 out["total_output_tokens"] = output_tokens
-                if window:
+                if window > 0:
                     pct = min(100.0, max(0.0, float(used) / float(window) * 100.0))
                     out["context_used_pct"] = pct
                     out["context_remaining_pct"] = 100.0 - pct
-        rate_limits = token_event.get("rate_limits")
-        if isinstance(rate_limits, dict):
-            out.update(_rate_limit_fields(rate_limits))
-            out["plan_type"] = rate_limits.get("plan_type")
+    out.update(quota_fields)
 
     out["model_id"] = out.get("model_id") or "unknown"
     out["display_name"] = out.get("display_name") or out["model_id"]
