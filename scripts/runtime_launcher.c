@@ -122,7 +122,7 @@ static int hash_name(const char *name) {
  * daemon can continue importing its modules throughout an upgrade. */
 static int unused_lock(const char *base, const char *hash) {
     char name[80], path[PATH_MAX];
-    snprintf(name, sizeof(name), "%s.lock", hash);
+    snprintf(name, sizeof(name), "%.64s.lock", hash);
     path_join(path, base, name);
     int fd = open(path, O_RDWR | O_CREAT | O_NOFOLLOW, 0600);
     if (fd < 0) return -1;
@@ -173,7 +173,7 @@ static void prune_runtimes(const char *base) {
         char path[PATH_MAX], lockname[80], lockpath[PATH_MAX];
         path_join(path, base, name);
         remove_incomplete(path);
-        snprintf(lockname, sizeof(lockname), "%s.lock", name);
+        snprintf(lockname, sizeof(lockname), "%.64s.lock", name);
         path_join(lockpath, base, lockname);
         unlink(lockpath);
         close(fd);
