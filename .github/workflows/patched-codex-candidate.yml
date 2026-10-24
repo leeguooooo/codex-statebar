@@ -6,7 +6,7 @@ on:
       platforms:
         description: Platforms to build
         type: choice
-        options: [macos-arm64, remaining, all]
+        options: [macos-arm64, macos-x86_64, linux-x86_64, linux-arm64, remaining, all]
         default: macos-arm64
 
       reuse_cached_binary:
@@ -36,7 +36,7 @@ jobs:
               {"os": "ubuntu-24.04-arm", "target": "linux-arm64"},
           ]
           mode = os.environ['PLATFORMS']
-          selected = targets if mode == 'all' else (targets[1:] if mode == 'remaining' else targets[:1])
+          selected = targets if mode == 'all' else (targets[1:] if mode == 'remaining' else [t for t in targets if t['target'] == mode])
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               output.write('matrix=' + json.dumps({'include': selected}) + '\n')
           PY
