@@ -9,6 +9,11 @@ on:
         options: [macos-arm64, remaining, all]
         default: macos-arm64
 
+      reuse_cached_binary:
+        description: Explicit recovery after a successful compile but failed acceptance
+        type: boolean
+        default: false
+
 permissions:
   contents: read
 
@@ -53,6 +58,7 @@ jobs:
         with:
           toolchain: 1.99.1
       - uses: actions/cache/restore@v4
+        id: cache
         with:
           path: |
             ~/.cargo/registry
@@ -60,9 +66,27 @@ jobs:
             build/codex-0.164.0/target
           key: codex-0.164.0-${{ matrix.target }}-${{ hashFiles('patches/codex-0.164.0*', 'scripts/build-patched-codex.sh') }}
           restore-keys: codex-0.164.0-${{ matrix.target }}-
-      - run: ./scripts/build-patched-codex.sh
+      - name: Build or recover compiled binary
+        id: native_build
+        env:
+          REUSE: ${{ inputs.reuse_cached_binary }}
+          CACHE_HIT: ${{ steps.cache.outputs.cache-hit }}
+        run: |
+          if [ "$REUSE" = "true" ]; then
+            test "$CACHE_HIT" = "true"
+            test -x build/codex-0.164.0/target/release/codex
+            mkdir -p dist
+            cp build/codex-0.164.0/target/release/codex dist/codex-cxs
+          else
+            ./scripts/build-patched-codex.sh
+          fi
       - run: ./dist/codex-cxs --version
       - run: python3 scripts/verify_embedded_codex.py dist/codex-cxs
+      - uses: actions/upload-artifact@v4
+        if: failure() && steps.native_build.outcome == 'success'
+        with:
+          name: codex-cxs-${{ matrix.target }}-compiled-unverified
+          path: dist/codex-cxs
       - name: Package verified candidate
         env:
           TARGET: ${{ matrix.target }}
@@ -83,7 +107,7 @@ jobs:
             dist/codex-cxs-${{ matrix.target }}.tar.gz.sha256
             dist/codex-cxs-${{ matrix.target }}.fingerprint
       - uses: actions/cache/save@v4
-        if: always()
+        if: always() && !inputs.reuse_cached_binary
         with:
           path: |
             ~/.cargo/registry

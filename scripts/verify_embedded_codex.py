@@ -45,7 +45,8 @@ requires_openai_auth = false
 data = json.load(sys.stdin)
 assert data["codex_version"] == "0.164.0"
 assert data["terminal_columns"] == int(os.environ["COLUMNS"])
-print("AURORA_LINE_ONE columns=" + os.environ.get("COLUMNS", "missing"))
+columns = int(os.environ.get("COLUMNS", "0"))
+print(str(columns) * 8 if columns < 50 else "AURORA_LINE_ONE columns=" + str(columns))
 print("AURORA_PROJECT_LINE")
 print("AURORA_MODE_LINE")
 ''')
@@ -82,7 +83,13 @@ print("AURORA_MODE_LINE")
                     os.write(master, b'\x1b[?1;2c')
                 captured = (captured + data)[-131072:]
                 plain = ANSI.sub(b'', captured)
-                if not expect_native and all(marker in plain for marker in
+                resized_columns = re.search(rb'(\d{2})\1{5,}', plain) if resized else None
+                if not expect_native and resized_columns:
+                    columns = int(resized_columns.group(1))
+                    assert 0 < columns <= 40
+                    return {'embedded_three_rows': True, 'resize_width_verified': True,
+                            'resize_columns': columns, 'isolated_auth': True, 'prompts_sent': 0}
+                if not expect_native and not resized and all(marker in plain for marker in
                          (b'AURORA_LINE_ONE', b'AURORA_PROJECT_LINE', b'AURORA_MODE_LINE')):
                     embedded = True
                     if not resized:
@@ -90,9 +97,6 @@ print("AURORA_MODE_LINE")
                         fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack('HHHH', 32, 40, 0, 0))
                         os.kill(pid, signal.SIGWINCH)
                         resized = True
-                    elif b'columns=38' in plain:
-                        return {'embedded_three_rows': True, 'resize_width_verified': True,
-                                'isolated_auth': True, 'prompts_sent': 0}
             plain = ANSI.sub(b'', captured).decode('utf-8', 'replace')
             raise AssertionError(f'footer acceptance failed (embedded={embedded}, resized={resized}): {plain[-4000:]}')
         finally:
