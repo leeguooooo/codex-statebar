@@ -384,6 +384,11 @@ def collect_status(data: Optional[dict] = None) -> Dict[str, Any]:
                 out[key] = live[key]
         if "rate_limit_7d_pct" in live:
             out["rate_limit_7d_pct"] = live["rate_limit_7d_pct"]
+            reset = _finite_number(out.get("rate_limit_7d_resets_at"))
+            if reset is not None and reset <= time.time():
+                # A fresh TUI reading may precede the new window's rollout
+                # event. Do not pair it with the previous window's reset.
+                out["rate_limit_7d_resets_at"] = None
 
     out["model_id"] = out.get("model_id") or "unknown"
     out["display_name"] = out.get("display_name") or out["model_id"]

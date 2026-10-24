@@ -220,3 +220,18 @@ def test_live_context_and_weekly_are_authoritative(tmp_path, monkeypatch):
     assert status['context_window_size'] == 500000
     assert status['rate_limit_7d_pct'] == 77
     assert status['terminal_columns'] == 40
+
+
+def test_fresh_native_weekly_does_not_reuse_an_expired_reset(tmp_path, monkeypatch):
+    home = tmp_path / '.codex'
+    path = home / 'sessions/rollout-thread-1.jsonl'
+    _write_rollout(path, str(tmp_path))
+    monkeypatch.setenv('CODEX_HOME', str(home))
+    with path.open('a') as handle:
+        handle.write(json.dumps({'type': 'event_msg', 'payload': {'type': 'token_count',
+            'rate_limits': {'secondary': {'used_percent': 99, 'window_minutes': 10080,
+                                          'resets_at': 1}}}}) + '\n')
+    status = rollout.collect_status({'_codex_live': True, 'thread_id': 'thread-1',
+                                    'limits': {'weekly': {'used_percent': 1}}})
+    assert status['rate_limit_7d_pct'] == 1
+    assert status['rate_limit_7d_resets_at'] is None
