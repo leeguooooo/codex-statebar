@@ -230,6 +230,21 @@ index 8d4bbbd..e2173ea 100644
              current_cwd,
              workspace_command_runner,
              instruction_source_paths: Vec::new(),
+diff --git a/codex-rs/tui/src/chatwidget/session_flow.rs b/codex-rs/tui/src/chatwidget/session_flow.rs
+index ba33beb..215eec0 100644
+--- a/codex-rs/tui/src/chatwidget/session_flow.rs
++++ b/codex-rs/tui/src/chatwidget/session_flow.rs
+@@ -72,6 +72,10 @@ impl ChatWidget {
+         let previous_thread_id = self.thread_id;
+         let connector_scope_changed = previous_thread_id != Some(session.thread_id)
+             || self.config.cwd.as_path() != session.cwd.as_path();
++        if connector_scope_changed {
++            self.external_status_line_runner.stop();
++            self.set_external_status_lines(Vec::new());
++        }
+         self.thread_id = Some(session.thread_id);
+         self.daybreak_enabled = self.config.features.enabled(Feature::CliDaybreak)
+             && session.daybreak_enabled
 diff --git a/codex-rs/tui/src/chatwidget/status_controls.rs b/codex-rs/tui/src/chatwidget/status_controls.rs
 index a5d020c..defdd92 100644
 --- a/codex-rs/tui/src/chatwidget/status_controls.rs
@@ -334,10 +349,10 @@ index d7340e5..18a050a 100644
              .status_line
 diff --git a/codex-rs/tui/src/external_status_line.rs b/codex-rs/tui/src/external_status_line.rs
 new file mode 100644
-index 0000000..bd2c7f6
+index 0000000..1b1ce70
 --- /dev/null
 +++ b/codex-rs/tui/src/external_status_line.rs
-@@ -0,0 +1,212 @@
+@@ -0,0 +1,273 @@
 +//! Bounded, cancellable external renderer for the persistent footer.
 +//! One worker and one latest request per widget; no queued subprocesses or output logs.
 +
@@ -354,6 +369,7 @@ index 0000000..bd2c7f6
 +
 +const TIMEOUT: Duration = Duration::from_secs(5);
 +const REFRESH: Duration = Duration::from_secs(1);
++const UNCHANGED_REFRESH: Duration = Duration::from_secs(5);
 +const IDLE_EXPIRY: Duration = Duration::from_secs(5);
 +const MAX_OUTPUT: u64 = 32 * 1024;
 +const MAX_ROWS: usize = 6;
@@ -413,6 +429,7 @@ index 0000000..bd2c7f6
 +        let latest = Arc::clone(&self.latest);
 +        let sender = self.sender.clone();
 +        self.task = Some(tokio::spawn(async move {
++            let mut cached: Option<(Request, String, Instant)> = None;
 +            loop {
 +                let request = latest.lock().expect("status renderer lock").clone();
 +                let Some(request) = request else { break };
@@ -420,7 +437,23 @@ index 0000000..bd2c7f6
 +                if request.updated.elapsed() > IDLE_EXPIRY {
 +                    break;
 +                }
-+                let line = run_request(&request, TIMEOUT).await.ok();
++                let reusable = cached.as_ref().filter(|(previous, _, at)| {
++                    at.elapsed() < UNCHANGED_REFRESH
++                        && previous.command == request.command
++                        && previous.payload == request.payload
++                        && previous.cwd == request.cwd
++                        && previous.width == request.width
++                        && previous.thread_id == request.thread_id
++                });
++                let line = if let Some((_, output, _)) = reusable {
++                    Some(output.clone())
++                } else {
++                    let output = run_request(&request, TIMEOUT).await.ok();
++                    cached = output
++                        .as_ref()
++                        .map(|line| (request.clone(), line.clone(), Instant::now()));
++                    output
++                };
 +                sender.send(AppEvent::ExternalStatusLineUpdated {
 +                    thread_id: request.thread_id,
 +                    line,
@@ -529,7 +562,11 @@ index 0000000..bd2c7f6
 +        let mut runner = ExternalStatusLineRunner::new(AppEventSender::new(tx));
 +        for _ in 0..1000 {
 +            runner.request(
-+                vec!["/bin/sh".into(), "-c".into(), "printf frame".into()],
++                vec![
++                    "/bin/sh".into(),
++                    "-c".into(),
++                    "cat >/dev/null; printf frame".into(),
++                ],
 +                "{}".into(),
 +                std::env::temp_dir(),
 +                None,
@@ -548,6 +585,45 @@ index 0000000..bd2c7f6
 +                .unwrap()
 +                .is_none()
 +        );
++    }
++
++    #[tokio::test]
++    async fn external_status_reuses_unchanged_frames_but_refreshes_new_payloads() {
++        let directory = tempfile::tempdir().unwrap();
++        let counter = directory.path().join("calls");
++        let script = format!(
++            "cat >/dev/null; printf run >> '{}'; printf frame",
++            counter.display()
++        );
++        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
++        let mut runner = ExternalStatusLineRunner::new(AppEventSender::new(tx));
++        let input = request(&script);
++        for _ in 0..3 {
++            runner.request(
++                input.command.clone(),
++                input.payload.clone(),
++                input.cwd.clone(),
++                None,
++                77,
++            );
++            tokio::time::timeout(Duration::from_secs(3), rx.recv())
++                .await
++                .unwrap()
++                .unwrap();
++        }
++        assert_eq!(std::fs::read_to_string(&counter).unwrap(), "run");
++        runner.request(
++            input.command.clone(),
++            "changed".into(),
++            input.cwd.clone(),
++            None,
++            77,
++        );
++        tokio::time::timeout(Duration::from_secs(3), rx.recv())
++            .await
++            .unwrap()
++            .unwrap();
++        assert_eq!(std::fs::read_to_string(&counter).unwrap(), "runrun");
 +    }
 +}
 diff --git a/codex-rs/tui/src/lib.rs b/codex-rs/tui/src/lib.rs

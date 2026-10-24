@@ -7,6 +7,7 @@ import argparse
 import fcntl
 import json
 import os
+import re
 from pathlib import Path
 import signal
 import subprocess
@@ -43,6 +44,23 @@ def verify(entrypoint, seconds=60):
                'CODEX_STATEBAR_RUNTIME_DIR': str(root / 'runtime'), 'TMPDIR': str(root),
                'PYINSTALLER_RESET_ENVIRONMENT': '1'}
         subprocess.run([entrypoint, '--version'], env=env, check=True, capture_output=True, timeout=30)
+        probe_repo = home / 'git-probe'
+        probe_repo.mkdir()
+        subprocess.run(['git', 'init', '-q', str(probe_repo)], check=True)
+        subprocess.run([entrypoint, '-m', 'codex_statebar._git_refresh', str(probe_repo)],
+                       env=env, check=True, capture_output=True, timeout=15)
+        git_state = next((home / '.cache/codex-statebar/git').glob('*.json'))
+        assert json.loads(git_state.read_text())['dirty'] is False
+        payload = {'_codex_live': True, 'thread_id': None, 'codex_version': '0.164.0',
+                   'cwd': str(home), 'model': 'gpt-ui-probe', 'terminal_columns': 40,
+                   'context': {'used_percent': 20, 'window_tokens': 200000},
+                   'limits': {'weekly': {'used_percent': 73}}}
+        rendered = subprocess.run([entrypoint, 'render'], input=json.dumps(payload),
+                                  env={**env, 'CODEX_STATUS_LINE': '1', 'CODEX_STATEBAR_STYLE': 'aurora'},
+                                  check=True, capture_output=True, text=True, timeout=15)
+        plain = re.sub(r'\x1b\[[0-9;]*m', '', rendered.stdout)
+        assert '73%' in plain and '20%' in plain and '5h' not in plain.lower(), plain
+        assert all(len(line) <= 40 for line in plain.splitlines()), plain
         process = subprocess.Popen([entrypoint, 'watch', '--interval', '0.2', '--session',
                                     'resource-probe', '--style', 'aurora', '--no-color'],
                                    cwd=home, env=env, stdin=subprocess.DEVNULL,
@@ -80,7 +98,8 @@ def verify(entrypoint, seconds=60):
         return {'seconds': seconds, 'rss_min_mb': round(min(s[0] for s in samples) / 1024, 2),
                 'rss_max_mb': round(max(s[0] for s in samples) / 1024, 2),
                 'rss_growth_kb': memory_growth, 'disk_growth_bytes': disk_growth,
-                'file_growth': file_growth, 'new_MEI_directories': 0, 'clean_exit': True}
+                'file_growth': file_growth, 'new_MEI_directories': 0, 'clean_exit': True,
+                'native_payload_width_verified': True, 'frozen_git_helper_verified': True}
 
 
 if __name__ == '__main__':

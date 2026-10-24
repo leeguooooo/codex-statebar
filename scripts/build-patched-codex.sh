@@ -51,6 +51,10 @@ if [[ "${CODEX_PATCH_ONLY:-0}" == "1" ]]; then
 fi
 
 if [[ "${CODEX_RUN_PATCH_TESTS:-0}" == "1" ]]; then
+  python3 "$ROOT/scripts/check_status_runner.py" "$SOURCE_DIR" "$CARGO_TARGET_DIR"
+fi
+
+if [[ "${CODEX_RUN_FULL_TUI_TESTS:-0}" == "1" ]]; then
   cargo test --locked --release \
     --manifest-path "$SOURCE_DIR/codex-rs/Cargo.toml" \
     --package codex-tui --lib external_status_ \

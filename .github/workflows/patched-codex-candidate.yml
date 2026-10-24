@@ -30,6 +30,7 @@ jobs:
           restore-keys: codex-0.164.0-macos-arm64-
       - run: ./scripts/build-patched-codex.sh
       - run: ./dist/codex-cxs --version
+      - run: python3 scripts/verify_embedded_codex.py dist/codex-cxs
       - uses: actions/upload-artifact@v4
         with:
           name: codex-cxs-macos-arm64-candidate

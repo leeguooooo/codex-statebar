@@ -110,10 +110,27 @@ jobs:
           - os: ubuntu-24.04-arm
             target: linux-arm64
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    env:
+      CARGO_BUILD_JOBS: 2
+      CARGO_PROFILE_RELEASE_LTO: "false"
+      CARGO_PROFILE_RELEASE_DEBUG: "0"
+      CODEX_RUN_PATCH_TESTS: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.99.1
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            build/codex-0.164.0/target
+          key: codex-0.164.0-${{ matrix.target }}-${{ hashFiles('patches/codex-0.164.0*', 'scripts/build-patched-codex.sh') }}
+          restore-keys: codex-0.164.0-${{ matrix.target }}-
       - run: ./scripts/build-patched-codex.sh
+      - run: python3 scripts/verify_embedded_codex.py dist/codex-cxs
       - shell: bash
         run: |
           mkdir patched-package
@@ -126,6 +143,14 @@ jobs:
           path: |
             codex-cxs-${{ matrix.target }}.tar.gz
             codex-cxs-${{ matrix.target }}.tar.gz.sha256
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            build/codex-0.164.0/target
+          key: codex-0.164.0-${{ matrix.target }}-${{ hashFiles('patches/codex-0.164.0*', 'scripts/build-patched-codex.sh') }}
 
   release:
     needs: [find-patched-codex, build, build-patched-codex]
@@ -176,5 +201,6 @@ jobs:
             --source-tag "$RELEASE_TAG"
       - uses: softprops/action-gh-release@v2
         with:
+          draft: true
           files: dist/*
           generate_release_notes: true

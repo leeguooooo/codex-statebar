@@ -197,8 +197,8 @@ def run_setup(verbose: bool = True, install_cmds: bool = True,
     ok = changed or "already configured" in message
     if verbose:
         print(f"{'✓' if ok else '!'} {message}")
-        print("  Uses Codex's built-in status-line items for stable CLI compatibility.")
-        print("  Run `cxs` or `cxs watch` for the rich renderer.")
+        print("  Native items remain configured as the compatibility fallback.")
+        print("  The managed `codex` launcher enables the rich footer when a compatible patched Codex is installed.")
         if changed:
             print("  Restart Codex CLI to load the command status-line configuration.")
     if install_cmds:

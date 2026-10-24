@@ -24,10 +24,12 @@ Use `cxs` for Codex CLI status-bar requests. Prefer commands over editing
 | List themes/styles | `cxs themes` / `cxs styles` |
 | Machine-readable status | `cxs --json-output` |
 
-Stable Codex supports built-in `[tui].status_line` item IDs but does not yet
-run external status commands. `cxs --setup` configures that native fallback.
-The rich multi-line renderer works in `cxs`, `cxs watch`, tmux, shell prompts,
-and any patched/future Codex build that pipes its session payload to `cxs`.
+The managed `codex` launcher automatically enables the embedded multi-line
+renderer when the installed patched Codex is at least as new as the official
+CLI. The patch targets Codex 0.164.0. `cxs doctor` reports the selected binary
+and whether its rich command hook is available.
 
-Do not claim the rich renderer is embedded in stable Codex when `cxs doctor`
-reports the external command hook as unavailable.
+`cxs --setup` keeps native `[tui].status_line` items as the fallback. The
+external argv is passed only to the selected patched process, so a newer
+official CLI can still start normally. `cxs watch` is optional for standalone
+use. Do not claim embedding works when doctor selects an unpatched CLI.
