@@ -46,7 +46,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 90
+    timeout-minutes: 180
     env:
       CARGO_BUILD_JOBS: 2
       CARGO_PROFILE_RELEASE_LTO: "false"
@@ -106,6 +106,23 @@ jobs:
             dist/codex-cxs-${{ matrix.target }}.tar.gz
             dist/codex-cxs-${{ matrix.target }}.tar.gz.sha256
             dist/codex-cxs-${{ matrix.target }}.fingerprint
+      - name: Stop leftover compiler children before cache snapshot
+        if: failure() || cancelled()
+        run: |
+          python3 - <<'PYSTOP'
+          import os, shlex, signal, subprocess, time
+          scope = os.getcwd() + '/build/codex-0.164.0/'
+          for sig in (signal.SIGTERM, signal.SIGKILL):
+              for row in subprocess.check_output(['ps', '-axo', 'pid=,command='], text=True).splitlines():
+                  bits = row.strip().split(None, 1)
+                  if len(bits) != 2: continue
+                  try: args = shlex.split(bits[1])
+                  except ValueError: continue
+                  if args and os.path.basename(args[0]) in ('cargo', 'rustc', 'clang', 'cc', 'ld') and any(scope in arg for arg in args):
+                      try: os.kill(int(bits[0]), sig)
+                      except ProcessLookupError: pass
+              time.sleep(1)
+          PYSTOP
       - uses: actions/cache/save@v4
         if: always() && !inputs.reuse_cached_binary
         with:

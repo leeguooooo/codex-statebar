@@ -1,0 +1,71 @@
+name: Intel Codex cross candidate
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  cross-build:
+    runs-on: macos-15
+    timeout-minutes: 120
+    env:
+      CARGO_BUILD_JOBS: 3
+      CARGO_PROFILE_RELEASE_LTO: "false"
+      CARGO_PROFILE_RELEASE_DEBUG: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.99.1
+          targets: x86_64-apple-darwin
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            build/codex-0.164.0/target
+          key: codex-0.164.0-macos-x86_64-cross-${{ hashFiles('patches/codex-0.164.0*', 'scripts/build-patched-codex.sh') }}
+          restore-keys: |
+            codex-0.164.0-macos-x86_64-cross-
+            codex-0.164.0-macos-arm64-
+      - run: CODEX_PATCH_ONLY=1 ./scripts/build-patched-codex.sh
+      - run: python3 scripts/check_status_runner.py build/codex-0.164.0/source build/codex-0.164.0/target
+      - name: Cross compile production CLI
+        run: |
+          cargo build --locked --release --target x86_64-apple-darwin \
+            --manifest-path build/codex-0.164.0/source/codex-rs/Cargo.toml \
+            --package codex-cli --target-dir build/codex-0.164.0/target
+          mkdir -p dist
+          cp build/codex-0.164.0/target/x86_64-apple-darwin/release/codex dist/codex-cxs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codex-intel-cross-compiled-unverified
+          path: dist/codex-cxs
+  verify-intel:
+    needs: cross-build
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: codex-intel-cross-compiled-unverified
+          path: dist
+      - run: chmod +x dist/codex-cxs && dist/codex-cxs --version
+      - run: python3 scripts/verify_embedded_codex.py dist/codex-cxs
+      - name: Package verified native Intel candidate
+        run: |
+          tar -czf dist/codex-cxs-macos-x86_64.tar.gz -C dist codex-cxs
+          python3 - <<'PY'
+          import hashlib
+          from pathlib import Path
+          p = Path('dist/codex-cxs-macos-x86_64.tar.gz')
+          p.with_name(p.name + '.sha256').write_text(hashlib.sha256(p.read_bytes()).hexdigest() + '  ' + p.name + '\n')
+          PY
+          python3 scripts/codex_build_manifest.py fingerprint > dist/codex-cxs-macos-x86_64.fingerprint
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codex-cxs-macos-x86_64-candidate
+          path: |
+            dist/codex-cxs-macos-x86_64.tar.gz
+            dist/codex-cxs-macos-x86_64.tar.gz.sha256
+            dist/codex-cxs-macos-x86_64.fingerprint

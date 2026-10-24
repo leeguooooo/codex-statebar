@@ -115,7 +115,7 @@ jobs:
           - os: ubuntu-24.04-arm
             target: linux-arm64
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 90
+    timeout-minutes: 180
     env:
       CARGO_BUILD_JOBS: 2
       CARGO_PROFILE_RELEASE_LTO: "false"
