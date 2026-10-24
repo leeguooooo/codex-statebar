@@ -36,6 +36,23 @@ index e2b86c9..1927726 100644
      AccountEmailLoaded {
          request_id: uuid::Uuid,
          email: Option<String>,
+diff --git a/codex-rs/tui/src/app_event_sender.rs b/codex-rs/tui/src/app_event_sender.rs
+index 0057b90..64bb00b 100644
+--- a/codex-rs/tui/src/app_event_sender.rs
++++ b/codex-rs/tui/src/app_event_sender.rs
+@@ -61,7 +61,11 @@ impl AppEventSender {
+         }
+         // Record inbound events for high-fidelity session replay.
+         // Avoid double-logging Ops; those are logged at the point of submission.
+-        if !matches!(event, AppEvent::CodexOp(_)) {
++        // Renderer frames are transient UI state, not transcript events.
++        if !matches!(
++            event,
++            AppEvent::CodexOp(_) | AppEvent::ExternalStatusLineUpdated { .. }
++        ) {
+             session_log::log_inbound_app_event(&event);
+         }
+         if let Err(e) = self.app_event_tx.send(event) {
 diff --git a/codex-rs/tui/src/bottom_pane/chat_composer.rs b/codex-rs/tui/src/bottom_pane/chat_composer.rs
 index 90e854d..11c23f0 100644
 --- a/codex-rs/tui/src/bottom_pane/chat_composer.rs

@@ -31,6 +31,20 @@ for patch_file in "${PATCH_FILES[@]}"; do
   patch -d "$SOURCE_DIR" -p1 --forward < "$patch_file"
 done
 
+# Release tags update workspace.package.version but leave path-package lock
+# entries at 0.0.0. Normalize only those entries; registry/git pins stay intact.
+python3 - "$SOURCE_DIR/codex-rs/Cargo.lock" "$VERSION" <<'PYLOCK'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+blocks = path.read_text().split('\n[[package]]\n')
+for index, block in enumerate(blocks):
+    if '\nsource = ' not in block:
+        blocks[index] = block.replace('\nversion = "0.0.0"',
+                                      '\nversion = "' + sys.argv[2] + '"', 1)
+path.write_text('\n[[package]]\n'.join(blocks))
+PYLOCK
+
 if [[ "${CODEX_PATCH_ONLY:-0}" == "1" ]]; then
   echo "patched source: $SOURCE_DIR"
   exit 0
