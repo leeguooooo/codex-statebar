@@ -68,7 +68,7 @@ def is_fresh(entry: Optional[dict], now: Optional[float] = None) -> bool:
     if not isinstance(ts, (int, float)):
         return False
     ttl = TTL_SECONDS if entry.get("supported") else NEGATIVE_TTL_SECONDS
-    return (now or time.time()) - ts < ttl
+    return -0.5 <= (time.time() if now is None else now) - ts < ttl
 
 
 def write_cache_atomic(fp: str, entry: dict) -> None:
@@ -98,7 +98,7 @@ def is_inflight(fp: str) -> bool:
         ts = data.get("ts", 0)
     except (OSError, json.JSONDecodeError, ValueError):
         return False
-    return (time.time() - ts) < INFLIGHT_MAX_AGE_S
+    return isinstance(ts, (int, float)) and -0.5 <= time.time() - ts < INFLIGHT_MAX_AGE_S
 
 
 def mark_inflight(fp: str) -> None:

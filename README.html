@@ -78,7 +78,7 @@ cxs doctor</pre>
 
   <section>
     <h2>Codex TUI 状态栏</h2>
-    <aside><code>codex</code> 启动器选择兼容的补丁版时，会自动启用嵌入式 Aurora；无需另开终端运行 watch。官方版更新于补丁版时，自动改用官方版与原生状态栏。</aside>
+    <aside><code>codex</code> 启动器选择兼容的补丁版时，会自动启用嵌入式富状态栏并沿用所选样式；无需另开终端运行 watch。官方版更新于补丁版时，自动改用官方版与原生状态栏。</aside>
     <pre>cxs --setup</pre>
     <p>原生回退配置包含模型、目录、Git 分支、上下文余量、每周限额、Fast 状态。原生配置保留在 config.toml；外部命令只由启动器传给补丁进程，后续切换官方版时不会留下不兼容配置。安装升级后重启 Codex CLI 生效。</p>
     <p>当前补丁对应 <code>rust-v0.164.0</code>。安装后运行 <code>codex</code> 即可使用：状态栏占据输入框下方独立测量的多行区域，最多 6 行；缩窄窗口时按实际可用宽度重排。命令超时、失败或输出超限时显示原生状态栏。<code>cxs doctor</code> 可检查当前选择的版本及接入情况。</p>

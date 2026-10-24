@@ -2,6 +2,15 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
+def _isolate_home(tmp_path, monkeypatch):
+    """Background refresh subprocesses must never write the developer's caches."""
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+
+
+@pytest.fixture(autouse=True)
 def _isolate_rate_latest(tmp_path, monkeypatch):
     """Keep every test off the real ~/.cache/codex-statebar/rate_latest.json.
 
