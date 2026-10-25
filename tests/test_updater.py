@@ -1,5 +1,6 @@
 import io
 import hashlib
+import json
 import os
 import tarfile
 
@@ -276,3 +277,149 @@ def test_upgrade_refuses_concurrent_run_and_cleans_staging(tmp_path, monkeypatch
     ok, message = updater.upgrade_current_install()
     assert ok is False and "network down" in message
     assert cxs.read_bytes() == b"old-cxs"
+
+
+def _native_release(tag, source_tag, cxs_data, *, codex_data=b"codex", host_data=b"host",
+                    fingerprint="f" * 64, codex_version="0.164.0"):
+    def archive(member, data):
+        payload = io.BytesIO()
+        with tarfile.open(fileobj=payload, mode="w:gz") as bundle:
+            info = tarfile.TarInfo(member)
+            info.size = len(data)
+            bundle.addfile(info, io.BytesIO(data))
+        return payload.getvalue()
+
+    assets, listing = {}, []
+    for binary, data in (("cxs", cxs_data), ("codex-cxs", codex_data),
+                         ("codex-code-mode-host", host_data)):
+        packed = archive(binary, data)
+        url = f"{tag}/{binary}"
+        assets[url] = packed
+        assets[url + ".sha256"] = hashlib.sha256(packed).hexdigest().encode()
+        listing += [
+            {"name": f"{binary}-test.tar.gz", "browser_download_url": url},
+            {"name": f"{binary}-test.tar.gz.sha256", "browser_download_url": url + ".sha256"},
+        ]
+    manifest = {"schema": 1, "source_tag": source_tag, "fingerprint": fingerprint,
+                "codex_version": codex_version, "assets": {}}
+    assets[f"{tag}/manifest"] = json_bytes(manifest)
+    listing.append({"name": "codex-cxs-manifest.json",
+                    "browser_download_url": f"{tag}/manifest"})
+    return {"tag_name": tag, "assets": listing}, assets
+
+
+_PUBLISHED = {}
+
+
+@pytest.fixture(autouse=True)
+def _fresh_published():
+    _PUBLISHED.clear()
+
+
+def _serve(monkeypatch, release, assets, fetched):
+    # Earlier releases stay downloadable, as patched Codex reuse requires.
+    _PUBLISHED[release["tag_name"]] = (release, assets)
+
+    def fetch(url):
+        fetched.append(url)
+        if url == updater.LATEST_API:
+            return json_bytes(release)
+        if url.startswith(updater.RELEASE_TAG_API + "/"):
+            return json_bytes(_PUBLISHED[url.rsplit("/", 1)[1]][0])
+        for _release, published in [(release, assets), *_PUBLISHED.values()]:
+            if url in published:
+                return published[url]
+        raise KeyError(url)
+    monkeypatch.setattr(updater, "_fetch", fetch)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows releases do not ship codex-cxs")
+def test_cxs_only_release_skips_unchanged_native_binaries(tmp_path, monkeypatch):
+    cxs = tmp_path / "cxs"
+    cxs.write_bytes(b"old-cxs")
+    monkeypatch.setattr(updater, "_target", lambda: "test")
+    monkeypatch.setattr(updater, "_destination", lambda: cxs)
+
+    monkeypatch.setattr(codex_statebar, "__version__", "0.3.0", raising=False)
+    release, assets = _native_release("v0.3.1", "v0.3.1", b"cxs-031")
+    fetched = []
+    _serve(monkeypatch, release, assets, fetched)
+    ok, message = updater.upgrade_current_install()
+    assert ok is True, message
+    receipt = json.loads((tmp_path / ".codex-cxs-receipt.json").read_text())
+    assert receipt["source_tag"] == "v0.3.1"
+    assert receipt["files"]["codex-cxs"] == hashlib.sha256(b"codex").hexdigest()
+    assert receipt["files"]["codex-code-mode-host"] == hashlib.sha256(b"host").hexdigest()
+
+    # Next release reuses the same native build: only cxs is downloaded.
+    monkeypatch.setattr(codex_statebar, "__version__", "0.3.1", raising=False)
+    release, assets = _native_release("v0.4.0", "v0.3.1", b"cxs-040")
+    fetched = []
+    _serve(monkeypatch, release, assets, fetched)
+    ok, message = updater.upgrade_current_install()
+    assert ok is True, message
+    assert cxs.read_bytes() == b"cxs-040"
+    assert not any(url.endswith(("codex-cxs", "codex-code-mode-host")) for url in fetched)
+    assert "Upgraded cxs from v0.4.0" in message
+    assert not list(tmp_path.glob("*.new"))
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows releases do not ship codex-cxs")
+@pytest.mark.parametrize("change", ["tampered", "native_build", "symlinked_host"])
+def test_native_binaries_reinstall_when_build_or_disk_changes(tmp_path, monkeypatch, change):
+    cxs = tmp_path / "cxs"
+    cxs.write_bytes(b"old-cxs")
+    monkeypatch.setattr(updater, "_target", lambda: "test")
+    monkeypatch.setattr(updater, "_destination", lambda: cxs)
+    monkeypatch.setattr(codex_statebar, "__version__", "0.3.0", raising=False)
+    release, assets = _native_release("v0.3.1", "v0.3.1", b"cxs-031")
+    _serve(monkeypatch, release, assets, [])
+    assert updater.upgrade_current_install()[0]
+
+    host = tmp_path / "codex-code-mode-host"
+    source_tag, codex_data = "v0.3.1", b"codex"
+    if change == "tampered":
+        (tmp_path / "codex-cxs").write_bytes(b"truncated")
+    elif change == "native_build":
+        source_tag, codex_data = "v0.4.0", b"codex-165"
+    else:
+        other = tmp_path / "official-host"
+        other.write_bytes(b"official")
+        host.unlink()
+        host.symlink_to(other)
+
+    monkeypatch.setattr(codex_statebar, "__version__", "0.3.1", raising=False)
+    release, assets = _native_release("v0.4.0", source_tag, b"cxs-040", codex_data=codex_data)
+    _serve(monkeypatch, release, assets, [])
+    ok, message = updater.upgrade_current_install()
+
+    assert ok is True, message
+    assert (tmp_path / "codex-cxs").read_bytes() == codex_data
+    assert not host.is_symlink() and host.read_bytes() == b"host"
+    receipt = json.loads((tmp_path / ".codex-cxs-receipt.json").read_text())
+    assert receipt["source_tag"] == source_tag
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows releases do not ship codex-cxs")
+def test_failed_native_download_keeps_receipt_and_leaves_no_staging(tmp_path, monkeypatch):
+    cxs = tmp_path / "cxs"
+    cxs.write_bytes(b"old-cxs")
+    monkeypatch.setattr(updater, "_target", lambda: "test")
+    monkeypatch.setattr(updater, "_destination", lambda: cxs)
+    monkeypatch.setattr(codex_statebar, "__version__", "0.3.0", raising=False)
+    release, assets = _native_release("v0.3.1", "v0.3.1", b"cxs-031")
+    _serve(monkeypatch, release, assets, [])
+    assert updater.upgrade_current_install()[0]
+    receipt_before = (tmp_path / ".codex-cxs-receipt.json").read_text()
+
+    monkeypatch.setattr(codex_statebar, "__version__", "0.3.1", raising=False)
+    release, assets = _native_release("v0.4.0", "v0.4.0", b"cxs-040", codex_data=b"codex-165")
+    assets["v0.4.0/codex-code-mode-host.sha256"] = b"0" * 64
+    _serve(monkeypatch, release, assets, [])
+    ok, message = updater.upgrade_current_install()
+
+    assert ok is False and "SHA-256" in message
+    assert cxs.read_bytes() == b"cxs-031"
+    assert (tmp_path / "codex-cxs").read_bytes() == b"codex"
+    assert (tmp_path / ".codex-cxs-receipt.json").read_text() == receipt_before
+    assert not list(tmp_path.glob("*.new"))
