@@ -21,7 +21,7 @@ CLAUDE_CONFIG_PATH = Path(
 
 LOOKS_VERSION = 1
 
-DEFAULT_STYLE = "classic"     # keep existing behavior for upgraders
+DEFAULT_STYLE = "aurora"      # saved styles and inherited Claude preferences win
 DEFAULT_THEME = "graphite"
 DEFAULT_DENSITY = "regular"   # cozy | regular | compact
 DEFAULT_AUTO_COMPACT_WIDTH = 0  # 0 = disabled; otherwise force hairline below this width
