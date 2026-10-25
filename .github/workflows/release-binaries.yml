@@ -85,6 +85,7 @@ jobs:
           python scripts/build_runtime_launcher.py bundle/cxs dist/cxs
           python scripts/verify_runtime_launcher.py dist/cxs
           python scripts/verify_resource_bounds.py dist/cxs --seconds 30
+          python scripts/verify_statusbar_features.py dist/cxs
       - name: Build Windows executable
         if: runner.os == 'Windows'
         run: pyinstaller --clean --onefile --name cxs --collect-data codex_statebar src/codex_statebar/__main__.py

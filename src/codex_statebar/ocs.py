@@ -2,14 +2,14 @@
 
 Shows this session's ocs name + stable id so other agents can `ocs dm` it,
 plus its unread DM count and the LAN bridge state. The only interfaces we
-depend on are the ocs CLI's JSON output — ``ocs whoami --json --session <sid>``,
-``ocs inbox --json --session <sid>`` and ``ocs lan status --json``
+depend on are the ocs CLI's JSON output — ``ocs whoami --json`` scoped by ``CODEX_THREAD_ID``,
+``ocs inbox --json`` with the same thread identity and ``ocs lan status --json``
 — never ~/.ocs internals, whose format ocs reserves the right to change. Each
 extra part hides on its own when its command fails (older ocs, LAN never set up).
 
 Render path only reads a per-session TTL cache; a stale cache kicks off a
-refresh (daemon: bounded thread pool; inline: detached ``-m codex_statebar.ocs``
-subprocess), exactly like the git dirty-state refresh. The segment hides
+refresh (detached ``-m codex_statebar.ocs``
+subprocess), using the persistent runtime entrypoint. The segment hides
 whenever ocs is missing, older than 0.5.0, or doesn't know the session (exit 1).
 
 Module top stays import-light (no subprocess / shutil) — it's imported on the
@@ -288,7 +288,7 @@ def _refresh_locked(session_id: str, timeout_s: float) -> None:
                 exe, ["inbox", "--json"],
                 timeout_s, parse_inbox, session_id)
             entry["lan"] = _run_json(exe, ["lan", "status", "--json"],
-                                     timeout_s, parse_lan_status)
+                                     timeout_s, parse_lan_status, session_id)
     write_cache_atomic(session_id, entry)
 
 

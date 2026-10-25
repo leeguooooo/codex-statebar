@@ -11,10 +11,10 @@ def _root():
     return Path.home() / '.cache/codex-statebar'
 
 
-def _claim():
+def _claim(name="update.lock"):
     root = _root()
     root.mkdir(parents=True, exist_ok=True)
-    handle = (root / 'update.lock').open('a+b')
+    handle = (root / name).open('a+b')
     try:
         if os.name == 'nt':
             import msvcrt
@@ -82,18 +82,19 @@ def run(*, check_only=False):
         # directory. A different native version cannot be swapped underneath
         # a running session safely. Keep the hint for an explicit upgrade.
         manifest_url = updater._asset_url(release, 'codex-cxs-manifest.json')
-        native_changed = False
+        native_safe = False
         if manifest_url and os.name != 'nt':
             manifest = json.loads(updater._fetch(manifest_url))
-            version = str(manifest.get('codex_version') or '')
-            if version:
+            version = manifest.get('codex_version')
+            import re
+            if isinstance(version, str) and re.fullmatch(r'\d+\.\d+\.\d+', version):
                 from .codex_launcher import inspect_install
                 installed = inspect_install().patched
-                native_changed = (installed is not None and
-                                  installed.version[:3] != updater._version_tuple(version)[:3])
-        if native_changed:
+                native_safe = (installed is not None and
+                               installed.version[:3] == updater._version_tuple(version)[:3])
+        if os.name != 'nt' and not native_safe:
             ok = True
-            message = f'cxs {latest} available; native Codex changes — exit Codex, then run: cxs upgrade'
+            message = f'cxs {latest} available; native compatibility is unconfirmed — exit Codex, then run: cxs upgrade'
         elif os.name == 'nt':
             ok = True
             message = f'cxs {latest} available; reinstall after closing cxs.exe (Windows locks running executables).'
@@ -111,8 +112,7 @@ def run(*, check_only=False):
 def main():
     # schedule()'s marker is the cross-session throttle; hold a different lock
     # throughout downloads/install so a slow update cannot race a later check.
-    from .ocs import try_claim
-    lock = try_claim('cxs-upgrade')
+    lock = _claim("update-worker.lock")
     if lock is None:
         return 0
     try:

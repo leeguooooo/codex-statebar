@@ -10,7 +10,7 @@ import pytest
 from codex_statebar import config, identity, ocs, picker, styles, update_check
 from codex_statebar.themes import get_theme
 
-SID = '01a16e63-9345-7ec0-9980-4a19a6279df9'
+SID = '11111111-2222-4333-8444-555555555555'
 
 
 def git(cwd, *args):
@@ -106,7 +106,11 @@ def test_scheduler_throttles_and_handles_future_clock(monkeypatch):
 def test_update_checks_write_hint_and_honor_disabled_install(monkeypatch):
     from codex_statebar import updater
     calls = []
-    monkeypatch.setattr(updater, '_fetch', lambda _: b'{"tag_name":"v99.0.0"}')
+    release = {'tag_name':'v99.0.0', 'assets':[{'name':'codex-cxs-manifest.json', 'browser_download_url':'manifest'}]}
+    monkeypatch.setattr(updater, '_fetch', lambda url: json.dumps(release if url == updater.LATEST_API else {'codex_version':'0.164.0'}).encode())
+    from codex_statebar import codex_launcher
+    binary = codex_launcher.CodexBinary(Path('/bin/codex-cxs'), 'codex-cli 0.164.0', (0,164,0,1), True)
+    monkeypatch.setattr(codex_launcher, 'inspect_install', lambda: codex_launcher.LaunchDecision(binary, binary, None, 'fixture'))
     monkeypatch.setattr(updater, 'upgrade_current_install', lambda: calls.append(True) or (True, 'upgraded'))
     monkeypatch.setattr(config, 'load_config', lambda: config.StatusbarConfig(auto_upgrade=False))
     assert update_check.run()[0]
@@ -176,3 +180,16 @@ def test_background_update_does_not_swap_a_different_native_host(monkeypatch):
     monkeypatch.setattr(updater, 'upgrade_current_install', lambda: pytest.fail('must not replace live native tool host'))
     ok, message = update_check.run()
     assert ok and 'exit Codex' in message
+
+
+@pytest.mark.parametrize('manifest,installed_ok', [(None,True), ({},True), ({'codex_version':'0.164.0'},False)])
+def test_background_update_requires_positive_native_evidence(monkeypatch, manifest, installed_ok):
+    from codex_statebar import updater, codex_launcher
+    release = {'tag_name':'v99.0.0', 'assets':([] if manifest is None else
+        [{'name':'codex-cxs-manifest.json','browser_download_url':'manifest'}])}
+    monkeypatch.setattr(updater, '_fetch', lambda url: json.dumps(release if url == updater.LATEST_API else manifest).encode())
+    binary = codex_launcher.CodexBinary(Path('/bin/codex-cxs'), 'codex-cli 0.164.0', (0,164,0,1), True)
+    monkeypatch.setattr(codex_launcher, 'inspect_install', lambda: codex_launcher.LaunchDecision(binary if installed_ok else None, binary if installed_ok else None, None, 'fixture'))
+    monkeypatch.setattr(config, 'load_config', lambda: config.StatusbarConfig(auto_upgrade=True))
+    monkeypatch.setattr(updater, 'upgrade_current_install', lambda: pytest.fail('uncertain native version must not be swapped'))
+    assert update_check.run()[0]

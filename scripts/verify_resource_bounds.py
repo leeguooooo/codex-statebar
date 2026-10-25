@@ -39,6 +39,7 @@ def verify(entrypoint, seconds=60):
         codex = home / '.codex'
         sessions = codex / 'sessions'
         sessions.mkdir(parents=True)
+        (codex / 'codex-statebar.json').write_text(json.dumps({'show_ocs': False, 'looks_seen': 1}))
         rollout = sessions / 'rollout-resource-probe.jsonl'
         events = [
             {'type': 'session_meta', 'payload': {'id': 'resource-probe', 'cwd': str(home), 'source': 'cli'}},
