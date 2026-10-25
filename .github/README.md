@@ -4,11 +4,7 @@
 
 为 Codex CLI 显示配额、上下文、模型、推理强度、Git 状态、活动和用量预测。
 
-```text
-7d[█░░░7%░░░░]⏰6d21h →91% | gpt-5.6(178.7k/353.4k)
-worktree (🌳2) ⤷ codex-statebar ⎇ main●
-⚙ effort:high
-```
+![Aurora：默认外观，显示在 Codex 输入框下方](https://raw.githubusercontent.com/leeguooooo/codex-statebar/main/docs/images/look-aurora.png)
 
 ## 安装
 
@@ -57,6 +53,12 @@ macOS / Linux 版首次启动时将运行时展开到 `~/.local/lib/codex-stateb
 安装器会自动配置，重新打开终端运行 `codex` 即可。当前补丁基于 Codex 0.164.0，Aurora 等多行样式显示在输入框下方。config.toml 保留原生字段作为后备；富状态栏命令只传给选中的补丁版进程。若官方版比补丁版更新，启动器优先官方版。
 
 ## 新外观、worktree 与 OCS
+
+三种外观：Aurora 方块（默认）、Aurora 细线、Classic。
+
+![Aurora 方块（默认）](https://raw.githubusercontent.com/leeguooooo/codex-statebar/main/docs/images/look-aurora.png)
+![Aurora 细线](https://raw.githubusercontent.com/leeguooooo/codex-statebar/main/docs/images/look-thin.png)
+![Classic](https://raw.githubusercontent.com/leeguooooo/codex-statebar/main/docs/images/look-classic.png)
 
 - 首次遇到新的外观集合，状态栏显示 `New looks · cxs theme`。运行 `cxs theme` 用方向键选择 Aurora 方块、Aurora 细线或 Classic；取消保留原来的样式。`cxs themes` 仍列出配色。
 - worktree 显示名称、主仓库名与有效 checkout 数量，已删除 checkout 的残留记录不计入。主 checkout 也显示数量，便于分辨正在修改哪棵树。可配置 `worktree_glyph` 与 `color_worktree`。

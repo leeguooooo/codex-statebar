@@ -33,9 +33,7 @@
   <section>
     <h2>当前输出</h2>
     <p><code>cxs --style aurora</code> 使用渐变进度条，并单独显示模型上下文百分比。保留 classic、capsule、hairline，所有样式会按终端宽度重排；过长的单个字段按中英文显示宽度截断。</p>
-    <pre>7d[█░░░7%░░░░]⏰6d21h →91% | gpt-5.6(178.7k/353.4k)
-⤷ codex-statebar ⎇ main●
-⚙ effort:high</pre>
+    <p><img src="https://raw.githubusercontent.com/leeguooooo/codex-statebar/main/docs/images/look-aurora.png" alt="Aurora：默认外观" width="800"></p>
     <p>数据直接来自本地 <code>$CODEX_HOME/sessions</code> 与 <code>$CODEX_HOME/archived_sessions</code>；不会读取 <code>auth.json</code>，不会上传 session 内容。独立运行时默认只选择当前目录的顶层 Codex CLI 会话，不会混入同目录的 Codex Desktop / VS Code 会话。</p>
     <p>视觉配置优先读取 <code>~/.codex/codex-statebar.json</code>；若没有 Codex 专属覆盖，则继承现有 <code>~/.claude/claude-statusbar.json</code>，使 <code>cs</code> 与 <code>cxs</code> 默认保持同一套样式、主题、颜色和密度。</p>
   </section>
@@ -90,6 +88,9 @@ cxs doctor</pre>
   <section>
     <h2>新外观、worktree、OCS 和更新</h2>
     <p>状态栏遇到新外观集合时提示 <code>New looks · cxs theme</code>。运行 <code>cxs theme</code>，用方向键和回车选择 Aurora 方块、Aurora 细线或 Classic，取消保留原样式；查看后提示消失。可用 <code>lang zh</code> 或 <code>lang en</code> 设置提示语言，默认跟随系统。也可直接设置 <code>bar_glyph thin</code>。窄终端可选 <code>narrow_layout stack</code> 换行保留字段，或 <code>narrow_layout drop</code> 隐藏末尾字段。<code>cxs themes</code> 仍列出配色。</p>
+    <p><img src="https://raw.githubusercontent.com/leeguooooo/codex-statebar/main/docs/images/look-aurora.png" alt="Aurora 方块（默认）" width="800"><br>
+       <img src="https://raw.githubusercontent.com/leeguooooo/codex-statebar/main/docs/images/look-thin.png" alt="Aurora 细线" width="800"><br>
+       <img src="https://raw.githubusercontent.com/leeguooooo/codex-statebar/main/docs/images/look-classic.png" alt="Classic" width="800"></p>
     <p>worktree 行显示 checkout 名称、主仓库与有效数量，排除已删除 checkout 的残留记录。主 checkout 同样显示数量。可用 <code>cxs config set worktree_glyph ⑂</code> 和 <code>cxs config set color_worktree &quot;#bd93f9&quot;</code> 调整。</p>
     <p>已安装 OCS 时，独立一行显示当前 Codex 会话的地址、未读消息与 LAN 状态。查询只使用 <code>ocs whoami --json</code>、<code>ocs inbox --json</code> 与 <code>ocs lan status --json</code>，按完整 thread ID 校验，30 秒缓存；未安装或不认识当前会话时隐藏，不会借用其他会话的身份。</p>
     <p>每 6 小时在后台检查 GitHub Release，发现新版后校验 SHA-256 并升级。<code>cxs config set auto_upgrade false</code> 关闭自动安装，保留版本检查和提示；<code>CODEX_STATEBAR_NO_UPDATE=1</code> 关闭检查。也可运行 <code>cxs upgrade --check</code> 或 <code>cxs upgrade</code>。若新版同时更换原生 Codex 版本，后台只提示更新；退出 Codex 后运行 <code>cxs upgrade</code>，避免替换正在使用的执行组件。Windows 运行中的 EXE 被系统锁定，因此只提示重新安装。</p>
