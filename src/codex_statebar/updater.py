@@ -20,6 +20,7 @@ REPO = "leeguooooo/codex-statebar"
 LATEST_API = f"https://api.github.com/repos/{REPO}/releases/latest"
 RELEASE_TAG_API = f"https://api.github.com/repos/{REPO}/releases/tags"
 TIMEOUT = 15
+CODE_MODE_HOST = "codex-code-mode-host"
 SYSTEM_CA_FILES = (
     Path("/etc/ssl/cert.pem"),
     Path("/etc/ssl/certs/ca-certificates.crt"),
@@ -171,6 +172,13 @@ def upgrade_current_install() -> Tuple[bool, str]:
             binaries.append(
                 ("codex-cxs", "codex-cxs", destination.with_name("codex-cxs"))
             )
+            # Codex resolves its tool host beside codex-cxs. Releases that
+            # predate the host asset rely on the launcher's fallback link.
+            if _asset_urls(release, target, CODE_MODE_HOST)[0]:
+                binaries.append((
+                    CODE_MODE_HOST, CODE_MODE_HOST,
+                    destination.with_name(CODE_MODE_HOST),
+                ))
         archives = {
             binary: _verified_archive(
                 patched_release if binary == "codex-cxs" else release,

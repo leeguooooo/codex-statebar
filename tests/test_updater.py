@@ -206,3 +206,50 @@ def test_upgrade_follows_patched_codex_source_manifest(tmp_path, monkeypatch):
 def json_bytes(value):
     import json
     return json.dumps(value).encode()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows releases do not ship codex-cxs")
+def test_upgrade_installs_code_mode_host_over_fallback_link(tmp_path, monkeypatch):
+    monkeypatch.setattr(codex_statebar, "__version__", "0.1.1", raising=False)
+
+    def archive(member, data):
+        payload = io.BytesIO()
+        with tarfile.open(fileobj=payload, mode="w:gz") as bundle:
+            info = tarfile.TarInfo(member)
+            info.size = len(data)
+            bundle.addfile(info, io.BytesIO(data))
+        return payload.getvalue()
+
+    assets, listing = {}, []
+    for binary, data in (("cxs", b"new-cxs"), ("codex-cxs", b"new-codex"),
+                         ("codex-code-mode-host", b"new-host")):
+        packed = archive(binary, data)
+        assets[binary] = packed
+        assets[binary + ".sha256"] = hashlib.sha256(packed).hexdigest().encode()
+        listing += [
+            {"name": f"{binary}-test.tar.gz", "browser_download_url": binary},
+            {"name": f"{binary}-test.tar.gz.sha256",
+             "browser_download_url": binary + ".sha256"},
+        ]
+    release = {"tag_name": "v0.1.1", "assets": listing}
+    cxs = tmp_path / "cxs"
+    cxs.write_bytes(b"old-cxs")
+    (tmp_path / "codex-cxs").write_bytes(b"old-codex")
+    elsewhere = tmp_path / "official-host"
+    elsewhere.write_bytes(b"official")
+    (tmp_path / "codex-code-mode-host").symlink_to(elsewhere)
+    monkeypatch.setattr(updater, "_target", lambda: "test")
+    monkeypatch.setattr(updater, "_destination", lambda: cxs)
+    monkeypatch.setattr(
+        updater,
+        "_fetch",
+        lambda url: json_bytes(release) if url == updater.LATEST_API else assets[url],
+    )
+
+    ok, message = updater.upgrade_current_install()
+
+    assert ok is True, message
+    host = tmp_path / "codex-code-mode-host"
+    assert not host.is_symlink() and host.read_bytes() == b"new-host"
+    assert os.access(host, os.X_OK)
+    assert elsewhere.read_bytes() == b"official"

@@ -65,10 +65,24 @@ if [ -z "$codex_base" ]; then
 fi
 verify_asset "$cxs_asset" "$base"
 verify_asset "$codex_asset" "$codex_base"
+# Codex resolves its tool host beside the running binary; without it every
+# tool call fails. Older releases lack the asset, so the launcher's fallback
+# link to a matching local Codex install covers them.
+host_asset="codex-code-mode-host-${target}.tar.gz"
+install_host=0
+if curl -fsSL "${base}/${host_asset}.sha256" -o /dev/null 2>/dev/null; then
+  verify_asset "$host_asset" "$base"
+  install_host=1
+else
+  echo "warning: release has no $host_asset; relying on a local Codex install" >&2
+fi
 
 mkdir -p "$tmp/unpacked" "$INSTALL_DIR"
 tar -xzf "$tmp/$cxs_asset" -C "$tmp/unpacked"
 tar -xzf "$tmp/$codex_asset" -C "$tmp/unpacked"
+if [ "$install_host" = "1" ]; then
+  tar -xzf "$tmp/$host_asset" -C "$tmp/unpacked"
+fi
 # Stage on the destination filesystem so rename never truncates an executable
 # still mapped by an active session, even when TMPDIR is on another volume.
 install_stage="$(mktemp -d "$INSTALL_DIR/.cxs-install.XXXXXX")"
@@ -76,6 +90,11 @@ for binary in cxs codex-cxs; do
   cp "$tmp/unpacked/$binary" "$install_stage/$binary"
   chmod +x "$install_stage/$binary"
 done
+if [ "$install_host" = "1" ]; then
+  cp "$tmp/unpacked/codex-code-mode-host" "$install_stage/codex-code-mode-host"
+  chmod +x "$install_stage/codex-code-mode-host"
+  mv -f "$install_stage/codex-code-mode-host" "$INSTALL_DIR/codex-code-mode-host"
+fi
 mv -f "$install_stage/codex-cxs" "$INSTALL_DIR/codex-cxs"
 mv -f "$install_stage/cxs" "$INSTALL_DIR/cxs"
 

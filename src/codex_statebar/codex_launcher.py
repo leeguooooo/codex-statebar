@@ -252,6 +252,60 @@ def inspect_install(
     return LaunchDecision(None, None, None, "no usable Codex binary was found")
 
 
+def _code_mode_host_name() -> str:
+    return "codex-code-mode-host.exe" if os.name == "nt" else "codex-code-mode-host"
+
+
+def _code_mode_host_candidates(
+    patched: CodexBinary,
+    official: Optional[CodexBinary],
+) -> Iterable[Path]:
+    name = _code_mode_host_name()
+    version = ".".join(str(part) for part in patched.version[:3])
+    releases = Path(
+        os.environ.get("CODEX_HOME") or Path.home() / ".codex"
+    ) / "packages" / "app-server-daemon" / "releases"
+    yield from sorted(releases.glob(f"{version}-*/bin/{name}"))
+    if official is None:
+        return
+    try:
+        resolved = official.path.resolve()
+    except OSError:
+        return
+    yield resolved.parent / name
+    # npm installs keep native binaries in a platform package beside bin/codex.js.
+    yield from sorted(
+        resolved.parent.parent.glob(f"node_modules/@openai/codex-*/vendor/*/bin/{name}")
+    )
+
+
+def ensure_code_mode_host(
+    patched: CodexBinary,
+    official: Optional[CodexBinary],
+) -> Optional[Path]:
+    """Link Codex's tool host beside codex-cxs.
+
+    Codex resolves ``codex-code-mode-host`` next to its own executable. The
+    patched build ships alone, so without this link every tool call fails.
+    """
+    target = patched.path.parent / _code_mode_host_name()
+    if target.is_file():
+        return target
+    for candidate in _code_mode_host_candidates(patched, official):
+        if not candidate.is_file() or not os.access(candidate, os.X_OK):
+            continue
+        staging = target.with_name(f".{target.name}.{os.getpid()}")
+        try:
+            staging.unlink(missing_ok=True)
+            staging.symlink_to(candidate)
+            os.replace(staging, target)
+        except OSError:
+            staging.unlink(missing_ok=True)
+            return None
+        return target
+    return None
+
+
 def launch(args: Sequence[str]) -> int:
     if os.environ.get(_VERSION_PROBE_ENV):
         print("codex-statebar: refused recursive Codex version probe", file=sys.stderr)
@@ -274,6 +328,7 @@ def launch(args: Sequence[str]) -> int:
     environment.pop("CODEX_STATEBAR_STATUS_COMMAND", None)
     if selected.patched:
         import json
+        ensure_code_mode_host(selected, decision.official)
         entrypoint = os.environ.get("CODEX_STATEBAR_ENTRYPOINT")
         command = ([entrypoint, "render"] if entrypoint else
                    ([sys.executable, "render"] if getattr(sys, "frozen", False) else

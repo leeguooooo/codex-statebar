@@ -310,3 +310,64 @@ def test_frozen_helper_uses_installed_entrypoint(tmp_path, monkeypatch):
     monkeypatch.setenv('CODEX_STATEBAR_ENTRYPOINT', '/installed/cxs')
     assert codex_launcher.module_command('codex_statebar._git_refresh', '/repo') == [
         '/installed/cxs', '-m', 'codex_statebar._git_refresh', '/repo']
+
+
+def _host(path: Path) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("#!/bin/sh\n", encoding="utf-8")
+    path.chmod(0o755)
+    return path
+
+
+def test_patched_launch_links_code_mode_host_from_npm_official(tmp_path, monkeypatch):
+    monkeypatch.setenv('CODEX_HOME', str(tmp_path / 'codex-home'))
+    managed = tmp_path / 'managed'
+    managed.mkdir()
+    package = tmp_path / 'lib' / 'node_modules' / '@openai' / 'codex'
+    (package / 'bin').mkdir(parents=True)
+    _binary(package / 'bin' / 'codex.js', '0.164.0')
+    host = _host(package / 'node_modules' / '@openai' / 'codex-darwin-arm64'
+                 / 'vendor' / 'aarch64-apple-darwin' / 'bin' / 'codex-code-mode-host')
+    patched = codex_launcher.CodexBinary(managed / 'codex-cxs', 'codex-cli 0.164.0', (0, 164, 0, 1), True)
+    official = codex_launcher.CodexBinary(package / 'bin' / 'codex.js', 'codex-cli 0.164.0', (0, 164, 0, 1), False)
+    monkeypatch.setattr(codex_launcher, 'inspect_install', lambda: codex_launcher.LaunchDecision(patched, patched, official, 'patched current'))
+    monkeypatch.setattr(codex_launcher.os, 'execve', lambda p, a, e: None)
+
+    codex_launcher.launch([])
+
+    link = managed / 'codex-code-mode-host'
+    assert link.is_symlink() and link.resolve() == host.resolve()
+
+
+def test_code_mode_host_prefers_version_matched_codex_package(tmp_path, monkeypatch):
+    home = tmp_path / 'codex-home'
+    monkeypatch.setenv('CODEX_HOME', str(home))
+    managed = tmp_path / 'managed'
+    managed.mkdir()
+    releases = home / 'packages' / 'app-server-daemon' / 'releases'
+    _host(releases / '0.163.0-aarch64-apple-darwin' / 'bin' / 'codex-code-mode-host')
+    matched = _host(releases / '0.164.0-aarch64-apple-darwin' / 'bin' / 'codex-code-mode-host')
+    patched = codex_launcher.CodexBinary(managed / 'codex-cxs', 'codex-cli 0.164.0', (0, 164, 0, 1), True)
+
+    assert codex_launcher.ensure_code_mode_host(patched, None) == managed / 'codex-code-mode-host'
+    assert (managed / 'codex-code-mode-host').resolve() == matched.resolve()
+
+
+def test_code_mode_host_replaces_dangling_link_and_keeps_real_file(tmp_path, monkeypatch):
+    home = tmp_path / 'codex-home'
+    monkeypatch.setenv('CODEX_HOME', str(home))
+    managed = tmp_path / 'managed'
+    managed.mkdir()
+    fresh = _host(home / 'packages' / 'app-server-daemon' / 'releases'
+                  / '0.164.0-x' / 'bin' / 'codex-code-mode-host')
+    link = managed / 'codex-code-mode-host'
+    link.symlink_to(tmp_path / 'gone')
+    patched = codex_launcher.CodexBinary(managed / 'codex-cxs', 'codex-cli 0.164.0', (0, 164, 0, 1), True)
+
+    codex_launcher.ensure_code_mode_host(patched, None)
+    assert link.resolve() == fresh.resolve()
+
+    link.unlink()
+    _host(link)
+    codex_launcher.ensure_code_mode_host(patched, None)
+    assert not link.is_symlink()
