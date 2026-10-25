@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Codex Statebar</title>
+  <style>
+    :root { --fg:#20242a; --muted:#68707c; --accent:#356fa8; --border:#d8dde4; --bg:#f7f8fa; --panel:#fff; }
+    * { box-sizing:border-box; }
+    body { margin:0; color:var(--fg); background:var(--bg); font:15px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif; }
+    main { max-width:980px; margin:0 auto; padding:56px 28px 80px; }
+    header { border-bottom:1px solid var(--border); padding-bottom:28px; }
+    h1 { margin:0 0 8px; font-size:38px; letter-spacing:-.03em; }
+    h2 { margin:38px 0 14px; font-size:22px; }
+    p { max-width:780px; }
+    .lead { color:var(--muted); font-size:18px; }
+    code, pre { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+    pre { overflow:auto; padding:16px 18px; background:#1f242b; color:#eef2f6; border-radius:7px; }
+    table { width:100%; border-collapse:collapse; background:var(--panel); }
+    th, td { padding:11px 13px; border:1px solid var(--border); text-align:left; vertical-align:top; }
+    th { background:#eef2f6; }
+    aside { margin:22px 0; padding:14px 17px; border-left:4px solid var(--accent); background:#edf4fa; }
+    a { color:var(--accent); }
+  </style>
+</head>
+<body><main>
+  <header>
+    <aside>用 <strong>Claude Code</strong>？试试姊妹项目 <a href="https://github.com/leeguooooo/claude-code-usage-bar"><strong>Claude Status Bar</strong></a>：同款状态栏，专为 Claude Code 打造。</aside>
+    <h1>Codex Statebar</h1>
+    <p><a href="README.html">English</a> · <strong>简体中文</strong></p>
+    <p class="lead">为 Codex CLI 提供每周配额、上下文、模型、推理强度、Git、活动、预测和多主题状态栏。</p>
+  </header>
+
+  <section>
+    <h2>当前输出</h2>
+    <p><code>cxs --style aurora</code> 使用渐变进度条，并单独显示模型上下文百分比。保留 classic、capsule、hairline，所有样式会按终端宽度重排；过长的单个字段按中英文显示宽度截断。</p>
+    <p><img src="https://raw.githubusercontent.com/leeguooooo/codex-statebar/main/docs/images/look-aurora.png" alt="Aurora：默认外观" width="800"></p>
+    <p>数据直接来自本地 <code>$CODEX_HOME/sessions</code> 与 <code>$CODEX_HOME/archived_sessions</code>；不会读取 <code>auth.json</code>，不会上传 session 内容。独立运行时默认只选择当前目录的顶层 Codex CLI 会话，不会混入同目录的 Codex Desktop / VS Code 会话。</p>
+    <p>视觉配置优先读取 <code>~/.codex/codex-statebar.json</code>；若没有 Codex 专属覆盖，则继承现有 <code>~/.claude/claude-statusbar.json</code>，使 <code>cs</code> 与 <code>cxs</code> 默认保持同一套样式、主题、颜色和密度。</p>
+  </section>
+
+  <section>
+    <h2>安装</h2>
+    <pre>curl -fsSL https://raw.githubusercontent.com/leeguooooo/codex-statebar/main/install.sh | sh
+cxs doctor</pre>
+    <p>一键安装会校验 SHA-256，安装 <code>cxs</code>、补丁版 <code>codex-cxs</code> 与用户级 <code>codex</code> 启动器，并通过 <code>cxs --setup</code> 接入状态栏。已有的 <code>~/.local/bin/codex</code> 会先备份；ChatGPT App 内置二进制不会被修改。</p>
+    <p>启动器会比较 PATH 中的官方 Codex 和补丁版：补丁版版本相同或更新时运行 <code>codex-cxs</code>；官方版更新时改为运行官方版并使用原生状态栏。这样官方更新不会被旧补丁版静默遮住。<code>cxs upgrade</code> 会一起校验并更新 <code>cxs</code> 与 <code>codex-cxs</code>。</p>
+    <p>发布物由 GitHub Actions 为 macOS / Linux 构建为独立二进制；用户端不需要 Python 或 Rust。若不想安装用户级启动器，设置 <code>CODEX_STATEBAR_INSTALL_CODEX_DEFAULT=0</code>。</p>
+    <p>macOS / Linux 版首次启动时将运行时展开到 <code>~/.local/lib/codex-statebar/&lt;内容校验值&gt;/</code>，后续启动复用该目录，不再为每次刷新创建 <code>_MEI…</code>。文件锁保护并发初始化，中断后自动重建不完整目录。可用 <code>CODEX_STATEBAR_RUNTIME_DIR</code> 指定存放位置。运行时通过共享锁保护仍在使用的版本；自动保留当前版本和一个闲置回退版本，回收其他已退出的版本及中断解包目录。没有使用锁标记的历史版本由人工核对后清理；升级更新安装入口。</p>
+    <p>版本探测跳过 cmux 转发脚本；其他包装脚本若绕回 <code>cxs</code>，重入保护会立即拒绝探针，避免递归进程链。</p>
+  </section>
+
+  <section>
+    <h2>使用</h2>
+    <table>
+      <thead><tr><th>目标</th><th>命令</th></tr></thead>
+      <tbody>
+        <tr><td>显示当前状态</td><td><code>cxs</code></td></tr>
+        <tr><td>实时独立面板</td><td><code>cxs watch --style aurora</code></td></tr>
+        <tr><td>诊断数据与接入</td><td><code>cxs doctor</code></td></tr>
+        <tr><td>主题 / 样式预览</td><td><code>cxs preview</code></td></tr>
+        <tr><td>切换主题</td><td><code>cxs config set theme nord</code></td></tr>
+        <tr><td>切换样式</td><td><code>cxs config set style aurora</code></td></tr>
+        <tr><td>配置 Codex 原生状态栏</td><td><code>cxs --setup</code></td></tr>
+        <tr><td>JSON 输出</td><td><code>cxs --json-output</code></td></tr>
+        <tr><td>精确选择会话</td><td><code>cxs --session &lt;thread-id&gt;</code></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>固定会话的实时看板</h2>
+    <p>Codex 的显示和预览只展示每周额度与上下文，不显示 5 小时栏。</p>
+    <pre>cxs watch --session &lt;thread-id&gt; --style aurora --theme nord --interval 1</pre>
+    <p>省略 --session 时跟随当前目录最近的顶层 CLI 会话；指定会话或路径后，找不到就显示缺失，不会改选另一场会话。Ctrl+C 退出并恢复原来的屏幕和光标。重定向到文件时输出纯文本；可用 --no-color 关闭颜色。</p>
+    <p>上下文和额度分别取最近一次有效记录。已过重置时间的额度显示未知，等待新数据，不会伪造为零；空 token 事件不会抹掉先前的上下文数据。</p>
+  </section>
+
+  <section>
+    <h2>Codex TUI 状态栏</h2>
+    <aside><code>codex</code> 启动器选择兼容的补丁版时，会自动启用嵌入式富状态栏并沿用所选样式；无需另开终端运行 watch。官方版更新于补丁版时，自动改用官方版与原生状态栏。</aside>
+    <pre>cxs --setup</pre>
+    <p>原生回退配置包含模型、目录、Git 分支、上下文余量、每周限额、Fast 状态。原生配置保留在 config.toml；外部命令只由启动器传给补丁进程，后续切换官方版时不会留下不兼容配置。安装升级后重启 Codex CLI 生效。</p>
+    <p>当前补丁对应 <code>rust-v0.164.0</code>。安装后运行 <code>codex</code> 即可使用：状态栏占据输入框下方独立测量的多行区域，最多 6 行；缩窄窗口时按实际可用宽度重排。命令超时、失败或输出超限时显示原生状态栏。<code>cxs doctor</code> 可检查当前选择的版本及接入情况。</p>
+    <p>上游扩展点进展见 <a href="https://github.com/openai/codex/issues/17827">openai/codex#17827</a>。</p>
+    <p>新建 Codex CLI 后，需要至少发送一条消息，Codex 才会创建可读取的 rollout。若尚未发送消息，<code>cxs</code> 会提示先完成首轮交互；它不会改用同目录的 Desktop 会话。</p>
+  </section>
+
+  <section>
+    <h2>新外观、worktree、OCS 和更新</h2>
+    <p>状态栏遇到新外观集合时提示 <code>New looks · cxs theme</code>。运行 <code>cxs theme</code>，用方向键和回车选择 Aurora 方块、Aurora 细线或 Classic，取消保留原样式；查看后提示消失。可用 <code>lang zh</code> 或 <code>lang en</code> 设置提示语言，默认跟随系统。也可直接设置 <code>bar_glyph thin</code>。窄终端可选 <code>narrow_layout stack</code> 换行保留字段，或 <code>narrow_layout drop</code> 隐藏末尾字段。<code>cxs themes</code> 仍列出配色。</p>
+    <p><img src="https://raw.githubusercontent.com/leeguooooo/codex-statebar/main/docs/images/look-aurora.png" alt="Aurora 方块（默认）" width="800"><br>
+       <img src="https://raw.githubusercontent.com/leeguooooo/codex-statebar/main/docs/images/look-thin.png" alt="Aurora 细线" width="800"><br>
+       <img src="https://raw.githubusercontent.com/leeguooooo/codex-statebar/main/docs/images/look-classic.png" alt="Classic" width="800"></p>
+    <p>worktree 行显示 checkout 名称、主仓库与有效数量，排除已删除 checkout 的残留记录。主 checkout 同样显示数量。可用 <code>cxs config set worktree_glyph ⑂</code> 和 <code>cxs config set color_worktree &quot;#bd93f9&quot;</code> 调整。</p>
+    <p>已安装 OCS 时，独立一行显示当前 Codex 会话的地址、未读消息与 LAN 状态。查询只使用 <code>ocs whoami --json</code>、<code>ocs inbox --json</code> 与 <code>ocs lan status --json</code>，按完整 thread ID 校验，30 秒缓存；未安装或不认识当前会话时隐藏，不会借用其他会话的身份。</p>
+    <p>每 6 小时在后台检查 GitHub Release，发现新版后校验 SHA-256 并升级。<code>cxs config set auto_upgrade false</code> 关闭自动安装，保留版本检查和提示；<code>CODEX_STATEBAR_NO_UPDATE=1</code> 关闭检查。也可运行 <code>cxs upgrade --check</code> 或 <code>cxs upgrade</code>。若新版同时更换原生 Codex 版本，后台只提示更新；退出 Codex 后运行 <code>cxs upgrade</code>，避免替换正在使用的执行组件。Windows 运行中的 EXE 被系统锁定，因此只提示重新安装。</p>
+  </section>
+
+  <section>
+    <h2>资源保留规则</h2>
+    <p>watch 和 daemon 每 30 分钟清理一次可重建缓存；可用 <code>cxs gc</code> 立即执行。闲置 session 缓存保留 24 小时，闲置目录最多 256 个；Git、余额和 OCS 缓存保留 30 天，各最多 1024 个文件。最近 1 小时有写入的状态暂不淘汰，运行中的窗口可以重新建立缓存。</p>
+    <p>daemon 日志每份上限 1 MiB，只保留一份轮转文件。新生成的系统服务不另外追加 stdout/stderr 文件。维护只处理 cxs 自己的缓存，不进入 Codex 的 sessions、archived_sessions 或配置文件，也不跟随缓存内的符号链接。</p>
+  </section>
+
+  <section>
+    <h2>上下文与缓存计算</h2>
+    <p>上下文用量读取最近一次 <code>token_count</code>：<code>total_tokens / model_context_window</code>。<code>cached_input_tokens</code> 虽可减少计费，但仍占用模型上下文，因此包含在已用 token 中；另行计算 billable input 时才从 input tokens 中扣除。</p>
+    <p><code>cache 3m24s</code> 是 Claude prompt cache 的剩余 TTL：使用最近 assistant turn 的时间戳，并从写入桶自动识别 5 分钟或 1 小时 TTL。Codex rollout 目前只提供 cached token 数量，不提供缓存创建时间或 TTL，所以 Codex 内不会伪造 <code>cache COLD</code> 或倒计时。</p>
+  </section>
+
+  <section>
+    <h2>开发验证</h2>
+    <pre>python -m pip install -e . pytest
+python -m pytest -q
+python -m compileall -q src
+cxs --no-color
+patch --dry-run -d /path/to/codex -p1 &lt; patches/codex-0.164.0-external-status-line.patch
+cargo check -p codex-tui</pre>
+  </section>
+</main></body>
+</html>

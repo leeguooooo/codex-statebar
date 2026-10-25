@@ -69,4 +69,4 @@ macOS / Linux 版首次启动时将运行时展开到 `~/.local/lib/codex-stateb
 
 Codex 不提供的五小时额度、Claude prompt-cache TTL 和按 Claude 模型划分的额度不会伪造显示。Git、活动、任务、推理强度、主题、预测、独立终端面板和诊断保留。
 
-完整安装说明与资源保留规则见 [README.html](README.html)。
+完整安装说明与资源保留规则见 [README.zh-CN.html](README.zh-CN.html)。

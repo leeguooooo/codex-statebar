@@ -69,4 +69,4 @@ Three looks: Aurora with block bars (default), Aurora with a thin line, and Clas
 
 Things Codex does not report — a five-hour quota, Claude's prompt-cache TTL and per-Claude-model quotas — are never faked. Git, activity, tasks, reasoning effort, themes, projections, the standalone terminal panel and diagnostics are all kept.
 
-Full install notes and resource retention rules (Chinese): [README.html](README.html).
+Full install notes and resource retention rules: [README.html](README.html).
