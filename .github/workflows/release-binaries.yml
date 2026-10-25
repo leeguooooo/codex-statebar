@@ -53,6 +53,7 @@ jobs:
 
   build:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: macos-15-intel
@@ -104,6 +105,7 @@ jobs:
     needs: find-patched-codex
     if: needs.find-patched-codex.outputs.source_tag == '' && !inputs.build_cli_only
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: macos-15-intel

@@ -10,14 +10,24 @@ import os
 import re
 from pathlib import Path
 import signal
+import stat
 import subprocess
 import tempfile
 import time
 
 
 def footprint(root):
-    files = [p for p in root.rglob('*') if p.is_file() and not p.is_symlink()]
-    return len(files), sum(p.stat().st_size for p in files)
+    count = size = 0
+    for path in root.rglob('*'):
+        try:
+            state = path.lstat()
+        except FileNotFoundError:
+            # Atomic cache writes rename temp files while we are sampling.
+            continue
+        if stat.S_ISREG(state.st_mode):
+            count += 1
+            size += state.st_size
+    return count, size
 
 
 def verify(entrypoint, seconds=60):
