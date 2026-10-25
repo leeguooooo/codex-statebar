@@ -134,7 +134,7 @@ def test_picker_applies_and_acknowledges_new_looks(tmp_path, monkeypatch):
                         show_five_hour=False, ocs_text='codex-' + SID, ocs_unread=3,
                         looks_hint=True)
     assert '━' in out and '5h' not in out
-    assert 'ocs codex-' + SID in out and '✉3' in out and 'cxs theme' in out
+    assert 'ocs codex-' + SID in out and '3 unread' in out and 'cxs theme' in out
 
 
 def test_narrow_stack_drop_and_looks_language():

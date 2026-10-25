@@ -70,9 +70,10 @@ else:
         result = run([entrypoint, 'render'], input=json.dumps(payload), cwd=tree)
         plain = ANSI.sub('', result.stdout)
         for token in ('73%', '20%', 'worktree (🌳1)', 'project', 'ocs fixture',
-                      'codex-' + SID, '✉3', 'fixture-peer', 'cxs theme', 'effort:high'):
+                      'codex-' + SID, '3 unread', 'fixture-peer', 'cxs theme', 'effort:high'):
             assert token in plain, (token, plain)
         assert '5h' not in plain.lower() and 'fixture-secret' not in result.stdout
+        assert '→0%' not in plain, plain
         assert len(plain.splitlines()) <= 6, plain
         # The real frozen config command applies the new look and dismisses its notice.
         run([entrypoint, 'config', 'set', 'style', 'aurora'])

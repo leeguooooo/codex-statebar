@@ -762,3 +762,9 @@ def test_legacy_dense_snapshots_are_redecimated_on_append():
     assert len(snaps) <= 8, f"legacy density survived: {len(snaps)} entries"
     times = [s["observed_at"] for s in snaps]
     assert all(b - a >= predict.SNAPSHOT_MIN_GAP_S for a, b in zip(times, times[1:]))
+
+
+@pytest.mark.parametrize("used,reset", [(73,None), (None,100), (73,float('nan')), (73,float('inf')), (73,50)])
+def test_missing_or_expired_reset_never_fabricates_zero_projection(used, reset):
+    store = {"display":{"seven_day":{"projected_pct":45,"resets_at":10}}}
+    assert predict._projection_for_window(store, 'seven_day', used, reset, 100, 'fixture') == predict.DEBUG_PLACEHOLDER

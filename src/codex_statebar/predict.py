@@ -1069,9 +1069,9 @@ def _projection_for_window(store: Dict[str, Any], window: str, used_pct, resets_
         used = float(used_pct)
         reset = float(resets_at)
     except (TypeError, ValueError):
-        prev = store.get("display", {}).get(window, {})
-        prev_pct = _coerce(prev.get("projected_pct")) if isinstance(prev, dict) else None
-        return _format_projection_pct(prev_pct if prev_pct is not None else 0.0)
+        return DEBUG_PLACEHOLDER
+    if not math.isfinite(used) or not math.isfinite(reset) or reset <= float(now):
+        return DEBUG_PLACEHOLDER
     store = record_projection_sample(store, window, used, reset, now, session_id)
     close_changed_windows(store, window)
 
