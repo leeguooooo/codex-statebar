@@ -1,12 +1,12 @@
 <!doctype html>
 <html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Codex 公共重置状态与语言适配</title>
+<title>Codex 官方重置状态与语言适配</title>
 <style>body{font:16px/1.7 system-ui,sans-serif;max-width:920px;margin:48px auto;padding:0 24px;color:#263344;background:#f7f9fc}table{border-collapse:collapse;width:100%;background:white}th,td{padding:12px;text-align:left;border-bottom:1px solid #dce3ec}code{background:#e8edf5;padding:2px 5px}a{color:#225fc0}h1,h2{line-height:1.3}</style>
-<h1>Codex 公共重置状态与语言适配</h1>
-<p>Codex Statebar 通过 <a href="https://codex-resets.com/api/docs">Codex Resets 公开 API</a> 显示公共重置公告。它不代表当前账户已到账，也不会修改个人 5 小时或每周额度。</p>
+<h1>Codex 官方重置状态与语言适配</h1>
+<p>Codex Statebar 通过 <a href="https://codex-resets.com/api/docs">Codex Resets 公开 API</a> 显示官方重置公告。它不代表当前账户已到账，也不会修改个人 5 小时或每周额度。</p>
 <h2>状态含义</h2>
 <table><tr><th>API 字段</th><th>显示示例</th><th>判断规则</th></tr>
-<tr><td>latest_reset</td><td>公共重置 · 8小时前<br>备用重置 · 8小时前</td><td>依据 announced_at 计算距公告的时间；regular 是常规重置，banked 是备用重置额度。</td></tr>
+<tr><td>latest_reset</td><td>官方重置 · 8小时前<br>储备重置 · 8小时前</td><td>依据 announced_at 计算距公告的时间；regular 是常规重置，banked 是储备重置额度。</td></tr>
 <tr><td>scheduled_reset</td><td>已公告重置 · 2小时后<br>已公告重置 · 等待确认</td><td>scheduled_for 有未来时间时显示倒计时。无准确时间、或时间已到，均等待执行确认，不能自动视为完成。</td></tr>
 <tr><td>active_watch</td><td>AI 预测 · 可能重置 (75%)</td><td>只在 observed_at 至 expires_at 之间显示。概率是站点的 AI 分类结果，不是 OpenAI 承诺；不把 forecast_window 自由文本解释为精确时间。</td></tr></table>
 <p>已公告状态优先于 AI 预测；最近完成记录可以同时显示。历史平均间隔不用于推算下一次重置。</p>

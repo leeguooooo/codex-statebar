@@ -704,6 +704,21 @@ def render_ocs_line_aurora(ocs_text: str, unread, lan, *, theme: Theme,
     return c(EDGE, _QUIET_SEP).join(segs)
 
 
+def render_reset_segment(reset_text: str, *, theme: Theme, quiet: bool = False,
+                         use_color: bool = True) -> str:
+    """`↻ 官方重置 8小时前`: labels dim, values base (aurora) or all muted."""
+    body = reset_text[2:] if reset_text.startswith("↻ ") else reset_text
+    pieces = body.split(" · ")
+    if not use_color:
+        return "↻ " + " ".join(pieces)
+    q = _aurora_quiet(theme)
+    BASE, DIM, EDGE = q["BASE"], q["DIM"], q["EDGE"]
+    # Templates alternate `label · value`, so odd pieces are the values.
+    segs = [f"{BASE if quiet and i % 2 else DIM}{piece}{RESET}"
+            for i, piece in enumerate(pieces)]
+    return f"{EDGE}↻{RESET} " + " ".join(segs)
+
+
 def render_identity_line(info, *, theme: Theme, dirty,
                          ahead=None, behind=None,
                          duration_text: str = "", lines_text: str = "",
@@ -1150,6 +1165,16 @@ def render(style: str, **kwargs) -> str:
     from ._display import clip_lines, visible_width
     parts = []
     out = fn(**kwargs, _segments=parts)
+    if reset_text and "\n" not in out:
+        # A trailing quota segment, not a new line: the bar stays as tall as before.
+        seg = render_reset_segment(reset_text, theme=theme, quiet=style == "aurora",
+                                   use_color=use_color)
+        pad = DENSITY_PAD.get(kwargs.get("density", "regular"), " ")
+        sep = " | " if fn is render_classic else (
+            f"{pad}{_fg(theme.edge)}│{RESET}{pad}" if style == "aurora" and use_color
+            else f"{pad}│{pad}" if style == "aurora" else " │ ")
+        out += sep + seg
+        parts.append(seg)
     if max_width is not None and max_width > 0 and visible_width(out) > max_width:
         # Pack whole segments; only an individually oversized segment is clipped.
         sep = " | " if fn is render_classic else " │ "
@@ -1187,9 +1212,6 @@ def render(style: str, **kwargs) -> str:
                    f"{_fg(theme.pill_ink)}{cwd_text}{RESET}")
         else:
             out = out + "\n" + f"⤷ {cwd_text}"
-
-    if reset_text:
-        out += "\n" + (f"{_fg(theme.mute)}{reset_text}{RESET}" if use_color else reset_text)
 
     if looks_hint:
         from .picker import hint_text

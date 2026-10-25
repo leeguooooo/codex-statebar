@@ -37,11 +37,11 @@ def epoch(value):
 
 # Only our own short templates are rendered, never remote announcement text.
 _TEXT = {
-    "en": ("Public reset {t} ago", "Banked reset {t} ago", "Reset announced · in {t}", "Reset announced · awaiting confirmation", "AI forecast · reset possible{p}", " · cached"),
-    "zh": ("公共重置 · {t}前", "备用重置 · {t}前", "已公告重置 · {t}后", "已公告重置 · 等待确认", "AI 预测 · 可能重置{p}", " · 缓存"),
-    "zh-TW": ("公共重置 · {t}前", "備用重置 · {t}前", "已公告重置 · {t}後", "已公告重置 · 等待確認", "AI 預測 · 可能重置{p}", " · 快取"),
-    "ja": ("全体リセット · {t}前", "予備リセット · {t}前", "リセット告知 · {t}後", "リセット告知 · 実施確認待ち", "AI 予測 · リセットの可能性{p}", " · キャッシュ"),
-    "ko": ("전체 초기화 · {t} 전", "예비 초기화 · {t} 전", "초기화 공지 · {t} 후", "초기화 공지 · 실행 확인 대기", "AI 예측 · 초기화 가능성{p}", " · 캐시"),
+    "en": ("Official reset · {t} ago", "Banked reset · {t} ago", "Reset announced · in {t}", "Reset announced · awaiting confirmation", "AI forecast · reset possible{p}", " · cached"),
+    "zh": ("官方重置 · {t}前", "储备重置 · {t}前", "已公告重置 · {t}后", "已公告重置 · 等待确认", "AI 预测 · 可能重置{p}", " · 缓存"),
+    "zh-TW": ("官方重置 · {t}前", "儲備重置 · {t}前", "已公告重置 · {t}後", "已公告重置 · 等待確認", "AI 預測 · 可能重置{p}", " · 快取"),
+    "ja": ("公式リセット · {t}前", "予備リセット · {t}前", "リセット告知 · {t}後", "リセット告知 · 実施確認待ち", "AI 予測 · リセットの可能性{p}", " · キャッシュ"),
+    "ko": ("공식 초기화 · {t} 전", "예비 초기화 · {t} 전", "초기화 공지 · {t} 후", "초기화 공지 · 실행 확인 대기", "AI 예측 · 초기화 가능성{p}", " · 캐시"),
 }
 _UNITS = {"en": ("m", "h", "d"), "zh": ("分钟", "小时", "天"),
           "zh-TW": ("分鐘", "小時", "天"), "ja": ("分", "時間", "日"),

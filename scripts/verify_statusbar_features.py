@@ -98,7 +98,7 @@ else:
         run([entrypoint, 'config', 'set', 'lang', 'ja'])
         result = run([entrypoint, 'render'], input=json.dumps(payload), cwd=tree)
         plain = ANSI.sub('', result.stdout)
-        assert '全体リセット' in plain and 'リセット告知' in plain, plain
+        assert '公式リセット' in plain and 'リセット告知' in plain, plain
         run([entrypoint, 'config', 'set', 'show_resets', 'false'])
         result = run([entrypoint, 'render'], input=json.dumps(payload), cwd=tree)
         assert 'リセット' not in result.stdout, result.stdout

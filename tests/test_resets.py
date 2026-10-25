@@ -19,9 +19,9 @@ def entry(**data):
 
 def test_completed_and_banked_do_not_imply_account_quota():
     latest = {"announced_at": stamp(-8 * 3600), "reset_type": "regular"}
-    assert resets.status_text(entry(latest_reset=latest), "zh", NOW) == "↻ 公共重置 · 8小时前"
+    assert resets.status_text(entry(latest_reset=latest), "zh", NOW) == "↻ 官方重置 · 8小时前"
     latest["reset_type"] = "banked"
-    assert "Banked reset 8h ago" in resets.status_text(entry(latest_reset=latest), "en", NOW)
+    assert "Banked reset · 8h ago" in resets.status_text(entry(latest_reset=latest), "en", NOW)
 
 
 def test_scheduled_deadline_never_turns_into_completed():
@@ -101,8 +101,8 @@ def test_all_styles_render_public_reset_without_color():
     from codex_statebar.styles import render
     for style in ("aurora", "classic", "capsule", "hairline"):
         out = render(style, msgs_pct=10, weekly_pct=20, reset_5h="2h", reset_7d="1d",
-                     model="Codex", reset_text="↻ 公共重置 · 8小时前", use_color=False)
-        assert "↻ 公共重置 · 8小时前" in out
+                     model="Codex", reset_text="↻ 官方重置 · 8小时前", use_color=False)
+        assert "↻ 官方重置 8小时前" in out.splitlines()[0]
         assert "\x1b" not in out
 
 
