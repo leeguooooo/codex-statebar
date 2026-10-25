@@ -1221,6 +1221,12 @@ def main(json_output: bool = False,
     from .i18n import ui_lang
     mode_kwargs = dict(narrow_layout=cfg.narrow_layout, ui_lang=ui_lang(cfg.lang), bar_glyph=cfg.bar_glyph, worktree_glyph=cfg.worktree_glyph,
                        looks_hint=cfg.looks_seen < _cfg.LOOKS_VERSION)
+    if cfg.show_resets and not json_output and not no_quota:
+        try:
+            from .resets import reset_line
+            mode_kwargs["reset_text"] = reset_line(ui_lang(cfg.lang))
+        except Exception:
+            pass  # Optional public data must never blank the account status.
     if cfg.show_ocs:
         from .ocs import ocs_label, ocs_status
         _sid = str(stdin_data.get("session_id") or "")

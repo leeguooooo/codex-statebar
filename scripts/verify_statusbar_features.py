@@ -7,6 +7,8 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
+from datetime import datetime, timezone
 
 SID = '11111111-2222-4333-8444-555555555555'
 ANSI = re.compile(r'\x1b(?:\][^\x07\x1b]*(?:\x07|\x1b\\)|\[[0-?]*[ -/]*[@-~])')
@@ -57,6 +59,8 @@ else:
 ''')
         fake.chmod(0o755)
         env['PATH'] = str(bin_dir) + os.pathsep + env.get('PATH', '')
+        # Keep unrelated layout checks deterministic and offline.
+        run([entrypoint, 'config', 'set', 'show_resets', 'false'])
         run([entrypoint, '-m', 'codex_statebar.ocs', SID])
         rollout = root / f'rollout-{SID}.jsonl'
         rollout.write_text(json.dumps({'type':'session_meta','payload':{
@@ -81,7 +85,24 @@ else:
         result = run([entrypoint, 'render'], input=json.dumps(payload), cwd=tree)
         plain = ANSI.sub('', result.stdout)
         assert '━' in plain and 'cxs theme' not in plain, plain
-        return {'frozen_ocs_helper':True, 'exact_thread':True, 'unread_and_lan':True,
+        # The bundled reset module must render localized completed/pending states.
+        now = time.time()
+        reset_cache = home / '.cache/codex-statebar/resets.json'
+        reset_cache.parent.mkdir(parents=True, exist_ok=True)
+        data = {'latest_reset': {'announced_at': datetime.fromtimestamp(
+                    now - 8 * 3600, timezone.utc).isoformat(), 'reset_type': 'regular'},
+                'scheduled_reset': {'status': 'scheduled', 'scheduled_for':
+                    datetime.fromtimestamp(now + 2 * 3600, timezone.utc).isoformat()}}
+        reset_cache.write_text(json.dumps({'data': data, 'fetched_at': now, 'checked_at': now}))
+        run([entrypoint, 'config', 'set', 'show_resets', 'true'])
+        run([entrypoint, 'config', 'set', 'lang', 'ja'])
+        result = run([entrypoint, 'render'], input=json.dumps(payload), cwd=tree)
+        plain = ANSI.sub('', result.stdout)
+        assert '全体リセット' in plain and 'リセット告知' in plain, plain
+        run([entrypoint, 'config', 'set', 'show_resets', 'false'])
+        result = run([entrypoint, 'render'], input=json.dumps(payload), cwd=tree)
+        assert 'リセット' not in result.stdout, result.stdout
+        return {'public_resets_localized_and_toggleable':True, 'frozen_ocs_helper':True, 'exact_thread':True, 'unread_and_lan':True,
                 'real_worktree':True, 'new_looks_notice':True, 'thin_look_applied':True,
                 'credentials_stripped':True, 'within_six_native_rows':True}
 

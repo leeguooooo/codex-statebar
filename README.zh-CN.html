@@ -118,5 +118,6 @@ cxs --no-color
 patch --dry-run -d /path/to/codex -p1 &lt; patches/codex-0.164.0-external-status-line.patch
 cargo check -p codex-tui</pre>
   </section>
+<p>公共重置公告默认显示在独立一行，区分已完成、已公告待执行和 AI 预测；它不代表个人账户已到账。重置文案随系统适配简中、繁中、英、日、韩，可用 <code>cxs config set lang auto</code> 跟随系统，或设置 <code>zh</code>、<code>zh-TW</code>、<code>en</code>、<code>ja</code>、<code>ko</code>。<code>cxs config set show_resets false</code> 关闭显示及后台刷新。数据来自 <a href="https://codex-resets.com/api/docs">Codex Resets API</a>，后台每 5 分钟刷新，渲染不等待网络。</p>
 </main></body>
 </html>

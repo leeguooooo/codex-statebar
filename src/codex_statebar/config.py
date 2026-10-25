@@ -50,6 +50,8 @@ class StatusbarConfig:
     worktree_glyph: str = "🌳"
     color_worktree: Optional[str] = None
     auto_compact_width: int = DEFAULT_AUTO_COMPACT_WIDTH
+    # Public Codex announcements; detached cached fetch, never account quota.
+    show_resets: bool = True
     show_weekly: bool = True
     show_language: bool = True
     show_cost: bool = False
@@ -162,6 +164,7 @@ def load_config(path: Optional[Path] = None) -> StatusbarConfig:
         theme=str(raw.get("theme", DEFAULT_THEME)),
         density=str(raw.get("density", DEFAULT_DENSITY)),
         auto_compact_width=int(raw.get("auto_compact_width", DEFAULT_AUTO_COMPACT_WIDTH) or 0),
+        show_resets=_to_bool(raw.get("show_resets", True)),
         show_weekly=_to_bool(raw.get("show_weekly", True)),
         show_language=_to_bool(raw.get("show_language", True)),
         show_cost=_to_bool(raw.get("show_cost", False)),
@@ -208,7 +211,7 @@ VALID_KEYS = {
     "lang", "narrow_layout",
     "bar_glyph", "looks_seen", "show_ocs", "auto_upgrade", "worktree_glyph", "color_worktree",
     "style", "theme", "density", "auto_compact_width",
-    "show_weekly", "show_language", "show_cost", "show_balance", "balance_bar",
+    "show_resets", "show_weekly", "show_language", "show_cost", "show_balance", "balance_bar",
     "show_cache_age",
     "show_project_branch", "show_party",
     "show_cwd", "cwd_style",
@@ -222,7 +225,7 @@ VALID_KEYS = {
     "color_ok", "color_warn", "color_hot",
 }
 _VALID_API_MODE = {"auto", "on", "off"}
-_BOOL_KEYS = {"show_ocs", "auto_upgrade", "show_weekly", "show_language", "show_cost", "show_balance",
+_BOOL_KEYS = {"show_ocs", "auto_upgrade", "show_resets", "show_weekly", "show_language", "show_cost", "show_balance",
               "balance_bar",
               "show_cache_age",
               "show_project_branch", "show_party",
@@ -305,7 +308,7 @@ def set_value(key: str, value: str, path: Optional[Path] = None) -> StatusbarCon
             raise ValueError(f"cwd_style must be one of {sorted(_VALID_CWD_STYLE)}, got {value!r}")
         setattr(cfg, key, value)
     elif key in ("lang", "narrow_layout"):
-        valid = {"auto", "zh", "en"} if key == "lang" else {"stack", "drop"}
+        valid = {"auto", "zh", "en", "zh-TW", "ja", "ko"} if key == "lang" else {"stack", "drop"}
         if value not in valid:
             raise ValueError(f"{key} must be one of {sorted(valid)}")
         setattr(cfg, key, value)

@@ -1,4 +1,4 @@
-"""UI language for sentence-like status text (risk lines). zh | en.
+"""UI language for sentence-like status text and public reset announcements.
 
 `lang = auto` follows the OS. On macOS that is the first entry of
 AppleLanguages, read straight from the global preferences plist — not $LANG,
@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-SUPPORTED = ("zh", "en")
+SUPPORTED = ("zh", "en", "zh-TW", "ja", "ko")
 _TTL_S = 600.0
 _cached: Optional[tuple] = None   # (lang, read_at) — the daemon is long-lived
 
@@ -22,7 +22,16 @@ def _normalize(tag: str) -> Optional[str]:
     tag = (tag or "").strip().lower()
     if not tag or tag in ("c", "posix"):
         return None
-    return "zh" if tag.startswith("zh") else "en"
+    tag = tag.replace("_", "-").split(".")[0]
+    if tag.startswith(("zh-tw", "zh-hk", "zh-mo", "zh-hant")):
+        return "zh-TW"
+    if tag.startswith("zh"):
+        return "zh"
+    if tag.startswith("ja"):
+        return "ja"
+    if tag.startswith("ko"):
+        return "ko"
+    return "en"
 
 
 def _macos_lang() -> Optional[str]:
@@ -51,7 +60,7 @@ def system_lang(env=None) -> str:
 
 
 def ui_lang(setting: str = "auto") -> str:
-    """Resolve the `lang` config value to zh | en."""
+    """Resolve explicit language or the cached OS preference."""
     global _cached
     if setting in SUPPORTED:
         return setting

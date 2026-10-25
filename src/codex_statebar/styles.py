@@ -1114,6 +1114,7 @@ def render(style: str, **kwargs) -> str:
     max_width = kwargs.pop("max_width", None)
     narrow_layout = kwargs.pop("narrow_layout", "stack")
     ui_lang = kwargs.pop("ui_lang", "en")
+    reset_text = kwargs.pop("reset_text", "")
     ocs_text = kwargs.pop("ocs_text", "")
     ocs_unread = kwargs.pop("ocs_unread", None)
     ocs_lan = kwargs.pop("ocs_lan", None)
@@ -1186,6 +1187,9 @@ def render(style: str, **kwargs) -> str:
                    f"{_fg(theme.pill_ink)}{cwd_text}{RESET}")
         else:
             out = out + "\n" + f"⤷ {cwd_text}"
+
+    if reset_text:
+        out += "\n" + (f"{_fg(theme.mute)}{reset_text}{RESET}" if use_color else reset_text)
 
     if looks_hint:
         from .picker import hint_text

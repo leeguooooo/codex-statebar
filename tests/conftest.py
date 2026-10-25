@@ -34,3 +34,10 @@ def _isolate_maintenance(tmp_path, monkeypatch):
     from codex_statebar import maintenance
     monkeypatch.setattr(maintenance, "_default_root", lambda: tmp_path / "maintenance-cache")
     monkeypatch.setattr(maintenance, "_last_run", 0.0)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_public_resets(monkeypatch):
+    """Renderer tests must not launch real third-party network workers."""
+    from codex_statebar import resets
+    monkeypatch.setattr(resets, "reset_line", lambda *args, **kwargs: "")

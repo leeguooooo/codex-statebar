@@ -222,6 +222,9 @@ def main():
         if module == "codex_statebar._balance_refresh":
             from . import _balance_refresh
             return _balance_refresh.main(sys.argv[2:])
+        if module == "codex_statebar.resets":
+            from . import resets
+            return resets.main()
         if module == "codex_statebar._ip_risk_refresh":
             from . import _ip_risk_refresh
             return _ip_risk_refresh.main()
