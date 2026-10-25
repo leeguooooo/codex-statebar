@@ -8,6 +8,7 @@ official Codex found later on PATH.
 from __future__ import annotations
 
 import os
+import platform
 import re
 import shutil
 import subprocess
@@ -256,17 +257,30 @@ def _code_mode_host_name() -> str:
     return "codex-code-mode-host.exe" if os.name == "nt" else "codex-code-mode-host"
 
 
+def _host_platform() -> Optional[Tuple[str, str]]:
+    arch = {"arm64": "aarch64", "aarch64": "aarch64",
+            "x86_64": "x86_64", "amd64": "x86_64"}.get(platform.machine().lower())
+    system = {"darwin": "apple-darwin", "linux": "linux"}.get(platform.system().lower())
+    return (arch, system) if arch and system else None
+
+
 def _code_mode_host_candidates(
     patched: CodexBinary,
     official: Optional[CodexBinary],
 ) -> Iterable[Path]:
+    # The host speaks a version-specific protocol, so only exact version and
+    # architecture matches are acceptable.
+    host_platform = _host_platform()
+    if host_platform is None:
+        return
+    arch, system = host_platform
     name = _code_mode_host_name()
     version = ".".join(str(part) for part in patched.version[:3])
     releases = Path(
         os.environ.get("CODEX_HOME") or Path.home() / ".codex"
     ) / "packages" / "app-server-daemon" / "releases"
-    yield from sorted(releases.glob(f"{version}-*/bin/{name}"))
-    if official is None:
+    yield from sorted(releases.glob(f"{version}-{arch}-*{system}*/bin/{name}"))
+    if official is None or official.version[:3] != patched.version[:3]:
         return
     try:
         resolved = official.path.resolve()
@@ -274,36 +288,55 @@ def _code_mode_host_candidates(
         return
     yield resolved.parent / name
     # npm installs keep native binaries in a platform package beside bin/codex.js.
-    yield from sorted(
-        resolved.parent.parent.glob(f"node_modules/@openai/codex-*/vendor/*/bin/{name}")
-    )
+    yield from sorted(resolved.parent.parent.glob(
+        f"node_modules/@openai/codex-*/vendor/{arch}-*{system}*/bin/{name}"
+    ))
 
 
 def ensure_code_mode_host(
     patched: CodexBinary,
     official: Optional[CodexBinary],
 ) -> Optional[Path]:
-    """Link Codex's tool host beside codex-cxs.
+    """Link Codex's tool host beside codex-cxs when the release copy is absent.
 
-    Codex resolves ``codex-code-mode-host`` next to its own executable. The
-    patched build ships alone, so without this link every tool call fails.
+    Codex resolves ``codex-code-mode-host`` next to its own executable. A real
+    file was installed from the matching release and is trusted; a link is
+    our own fallback and is re-validated so it never outlives a version match.
     """
     target = patched.path.parent / _code_mode_host_name()
-    if target.is_file():
+    if target.is_file() and not target.is_symlink():
         return target
-    for candidate in _code_mode_host_candidates(patched, official):
-        if not candidate.is_file() or not os.access(candidate, os.X_OK):
-            continue
-        staging = target.with_name(f".{target.name}.{os.getpid()}")
+    candidates = [
+        candidate
+        for candidate in _code_mode_host_candidates(patched, official)
+        if candidate.is_file() and os.access(candidate, os.X_OK)
+    ]
+    if target.is_symlink():
         try:
-            staging.unlink(missing_ok=True)
-            staging.symlink_to(candidate)
-            os.replace(staging, target)
+            current = target.resolve()
         except OSError:
-            staging.unlink(missing_ok=True)
-            return None
-        return target
-    return None
+            current = None
+        if current is not None and any(
+            _same_file(current, candidate) for candidate in candidates
+        ):
+            return target
+    if not candidates:
+        if target.is_symlink():
+            # A stale link to another version is worse than a clear failure.
+            try:
+                target.unlink()
+            except OSError:
+                pass
+        return None
+    staging = target.with_name(f".{target.name}.{os.getpid()}")
+    try:
+        staging.unlink(missing_ok=True)
+        staging.symlink_to(candidates[0])
+        os.replace(staging, target)
+    except OSError:
+        staging.unlink(missing_ok=True)
+        return None
+    return target
 
 
 def launch(args: Sequence[str]) -> int:

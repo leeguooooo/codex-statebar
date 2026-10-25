@@ -312,6 +312,11 @@ def test_frozen_helper_uses_installed_entrypoint(tmp_path, monkeypatch):
         '/installed/cxs', '-m', 'codex_statebar._git_refresh', '/repo']
 
 
+@pytest.fixture(autouse=True)
+def _apple_silicon(monkeypatch):
+    monkeypatch.setattr(codex_launcher, '_host_platform', lambda: ('aarch64', 'apple-darwin'))
+
+
 def _host(path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("#!/bin/sh\n", encoding="utf-8")
@@ -359,7 +364,7 @@ def test_code_mode_host_replaces_dangling_link_and_keeps_real_file(tmp_path, mon
     managed = tmp_path / 'managed'
     managed.mkdir()
     fresh = _host(home / 'packages' / 'app-server-daemon' / 'releases'
-                  / '0.164.0-x' / 'bin' / 'codex-code-mode-host')
+                  / '0.164.0-aarch64-apple-darwin' / 'bin' / 'codex-code-mode-host')
     link = managed / 'codex-code-mode-host'
     link.symlink_to(tmp_path / 'gone')
     patched = codex_launcher.CodexBinary(managed / 'codex-cxs', 'codex-cli 0.164.0', (0, 164, 0, 1), True)
@@ -371,3 +376,23 @@ def test_code_mode_host_replaces_dangling_link_and_keeps_real_file(tmp_path, mon
     _host(link)
     codex_launcher.ensure_code_mode_host(patched, None)
     assert not link.is_symlink()
+
+
+def test_code_mode_host_rejects_other_version_or_architecture(tmp_path, monkeypatch):
+    home = tmp_path / 'codex-home'
+    monkeypatch.setenv('CODEX_HOME', str(home))
+    managed = tmp_path / 'managed'
+    managed.mkdir()
+    releases = home / 'packages' / 'app-server-daemon' / 'releases'
+    _host(releases / '0.164.0-x86_64-apple-darwin' / 'bin' / 'codex-code-mode-host')
+    official_dir = tmp_path / 'official'
+    official_dir.mkdir()
+    _binary(official_dir / 'codex', '0.165.0')
+    _host(official_dir / 'codex-code-mode-host')
+    patched = codex_launcher.CodexBinary(managed / 'codex-cxs', 'codex-cli 0.164.0', (0, 164, 0, 1), True)
+    official = codex_launcher.CodexBinary(official_dir / 'codex', 'codex-cli 0.165.0', (0, 165, 0, 1), False)
+    stale = managed / 'codex-code-mode-host'
+    stale.symlink_to(official_dir / 'codex-code-mode-host')
+
+    assert codex_launcher.ensure_code_mode_host(patched, official) is None
+    assert not stale.exists() and not stale.is_symlink()

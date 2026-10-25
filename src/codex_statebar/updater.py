@@ -142,17 +142,8 @@ def _extract_member(archive: bytes, member: str, destination: Path) -> None:
         staged.chmod(staged.stat().st_mode | stat.S_IXUSR)
 
 
-def upgrade_current_install() -> Tuple[bool, str]:
-    target = _target()
-    if not target:
-        return False, "Unsupported platform for a prebuilt cxs binary."
-    destination = _destination()
-    if destination is None:
-        return False, (
-            "No installed cxs binary found. Install with:\n"
-            "curl -fsSL https://raw.githubusercontent.com/"
-            f"{REPO}/main/install.sh | sh"
-        )
+def _upgrade_locked(target: str, destination: Path) -> Tuple[bool, str]:
+    staged_paths: list[Path] = []
     try:
         release = json.loads(_fetch(LATEST_API))
         tag = str(release.get("tag_name") or "")
@@ -179,6 +170,9 @@ def upgrade_current_install() -> Tuple[bool, str]:
                     CODE_MODE_HOST, CODE_MODE_HOST,
                     destination.with_name(CODE_MODE_HOST),
                 ))
+        staged_paths = [
+            path.with_name(path.name + ".new") for _b, _m, path in binaries
+        ]
         archives = {
             binary: _verified_archive(
                 patched_release if binary == "codex-cxs" else release,
@@ -199,6 +193,44 @@ def upgrade_current_install() -> Tuple[bool, str]:
         return True, f"{action} {names} from {tag or 'latest'} beside {destination}."
     except Exception as exc:
         return False, f"Upgrade failed: {type(exc).__name__}: {exc}"
+    finally:
+        # Never leave partial downloads beside live executables.
+        for staged in staged_paths:
+            try:
+                staged.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+def upgrade_current_install() -> Tuple[bool, str]:
+    target = _target()
+    if not target:
+        return False, "Unsupported platform for a prebuilt cxs binary."
+    destination = _destination()
+    if destination is None:
+        return False, (
+            "No installed cxs binary found. Install with:\n"
+            "curl -fsSL https://raw.githubusercontent.com/"
+            f"{REPO}/main/install.sh | sh"
+        )
+    # Manual and background upgrades share one lock so two installers never
+    # write the same .new staging files.
+    lock_path = destination.with_name(".cxs-upgrade.lock")
+    try:
+        lock = lock_path.open("a+")
+    except OSError as exc:
+        return False, f"Upgrade failed: cannot open lock {lock_path}: {exc}"
+    with lock:
+        try:
+            import fcntl
+        except ImportError:  # Windows: single cxs.exe, no shared staging.
+            fcntl = None
+        if fcntl is not None:
+            try:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                return False, "Another cxs upgrade is already running."
+        return _upgrade_locked(target, destination)
 
 
 def check_and_upgrade() -> Tuple[bool, str]:

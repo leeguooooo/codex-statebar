@@ -77,9 +77,12 @@ def test_upgrade_rejects_bad_checksum(tmp_path, monkeypatch):
         lambda url: (json_bytes(release) if url == updater.LATEST_API
                      else archive if url == "archive" else b"0" * 64),
     )
+    stale = tmp_path / "cxs.new"
+    stale.write_bytes(b"partial")
     ok, message = updater.upgrade_current_install()
     assert ok is False
     assert "SHA-256" in message
+    assert not stale.exists()
 
 
 @pytest.mark.skipif(os.name == "nt", reason="Windows releases do not ship codex-cxs")
@@ -253,3 +256,24 @@ def test_upgrade_installs_code_mode_host_over_fallback_link(tmp_path, monkeypatc
     assert not host.is_symlink() and host.read_bytes() == b"new-host"
     assert os.access(host, os.X_OK)
     assert elsewhere.read_bytes() == b"official"
+
+
+def test_upgrade_refuses_concurrent_run_and_cleans_staging(tmp_path, monkeypatch):
+    import fcntl
+    cxs = tmp_path / "cxs"
+    cxs.write_bytes(b"old-cxs")
+    monkeypatch.setattr(updater, "_target", lambda: "test")
+    monkeypatch.setattr(updater, "_destination", lambda: cxs)
+
+    with (tmp_path / ".cxs-upgrade.lock").open("a+") as held:
+        fcntl.flock(held.fileno(), fcntl.LOCK_EX)
+        ok, message = updater.upgrade_current_install()
+    assert ok is False and "already running" in message
+
+    def fail(url):
+        raise OSError("network down")
+
+    monkeypatch.setattr(updater, "_fetch", fail)
+    ok, message = updater.upgrade_current_install()
+    assert ok is False and "network down" in message
+    assert cxs.read_bytes() == b"old-cxs"
