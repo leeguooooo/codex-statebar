@@ -1449,7 +1449,7 @@ def main(json_output: bool = False,
                         forecast_kwargs = {}
 
                 print(_render_style(
-                    chosen_style, max_width=render_width, show_five_hour=not (stdin_data.get("_is_codex") or stdin_data.get("rollout_path") or stdin_data.get("codex_version")),
+                    chosen_style, max_width=render_width, show_five_hour=stdin_data.get('rate_limit_pct') is not None or not (stdin_data.get("_is_codex") or stdin_data.get("rollout_path") or stdin_data.get("codex_version")),
                     msgs_pct=msgs_pct, weekly_pct=weekly_pct,
                     reset_5h=reset_time, reset_7d=reset_time_7d,
                     model=model, lang_body=lang_body, cost_text=cost_text,

@@ -221,7 +221,9 @@ def render_aurora(
     if ctx_pct is not None and not no_quota:
         name = _AURORA_TOKENS_RE.sub("", str(model))
         rgb = _severity_color(theme, ctx_pct, _CW, _CC)
-        parts.append(f"{accent}{name}{RESET} {bar(ctx_pct, 6)} "
+        # With both quota windows on the line, context drops its mini bar.
+        ctx_bar = "" if show_five_hour and msgs_pct is not None else f"{bar(ctx_pct, 6)} "
+        parts.append(f"{accent}{name}{RESET} {ctx_bar}"
                      f"{_fg(rgb)}{int(round(ctx_pct))}%{RESET}")
     else:
         parts.append(f"{accent}{model}{RESET}")
@@ -247,6 +249,123 @@ def render_aurora(
     if not use_color:
         return _strip(line)
     return line
+
+
+# ---------------------------------------------------------------------------
+# Style: ring
+# ---------------------------------------------------------------------------
+_RING_GLYPHS = "○◔◑◕●"
+
+
+def _ring_glyph(p) -> str:
+    if p is None:
+        return "○"
+    clamped = max(0.0, min(float(p), 100.0))
+    idx = int(clamped / 25 + 0.5)
+    if clamped > 0 and idx == 0:
+        idx = 1
+    return _RING_GLYPHS[idx]
+
+
+def render_ring(
+    *, msgs_pct, weekly_pct, reset_5h, reset_7d, model,
+    lang_body="", cost_text="", cache_age_text="", bypass=False,
+    use_color=True, theme: Optional[Theme]=None,
+    warning_threshold=30.0, critical_threshold=70.0,
+    density: str = "regular",
+    show_weekly: bool = True,
+    show_five_hour: bool = True,
+    ctx_pct: Optional[float] = None,
+    projection_5h: str = "",
+    projection_7d: str = "",
+    forecast_5h: str = "",
+    forecast_7d: str = "",
+    countdown_emoji: str = "",
+    no_quota: bool = False,
+    balance_text: str = "",
+    quota_stale: bool = False,
+    _segments=None,
+    **_ignored,
+) -> str:
+    """`◔ 14% 5h · resets 1h07m   ◕ 83% 7d · resets 3d04h`: a fill ring per window."""
+    from .progress import (window_severity_rgb, _blend, projection_pct,
+                           _render_projection, _render_forecast,
+                           CONTEXT_WARNING_THRESHOLD as _CW,
+                           CONTEXT_CRITICAL_THRESHOLD as _CC)
+    theme = theme or get_theme("graphite")
+    INK  = _fg(theme.ink)
+    MUTE = _fg(theme.mute)
+    EDGE = _fg(theme.edge)
+
+    def ring(p, rgb):
+        col = _fg(rgb) if rgb is not None and p is not None else EDGE
+        return f"{col}{_ring_glyph(p)}{RESET}"
+
+    def pct_text(p):
+        if p is None:
+            return f"{MUTE}--%{RESET}"
+        return f"{INK}{BOLD}{int(round(p))}%{RESET}"
+
+    def window(label, p, chip, forecast, reset, emoji=""):
+        rgb = window_severity_rgb(p, chip, theme,
+                                  warning_threshold, critical_threshold)
+        out = f"{ring(p, rgb)} {pct_text(p)} {MUTE}{label}"
+        if reset and reset != "--":
+            out += f" · resets {reset}{emoji}"
+        out += RESET
+        if chip:
+            out += " " + _render_projection(chip, theme, True)
+        if forecast and projection_pct(chip) is None:
+            out += " " + _render_forecast(forecast, theme, True)
+        return out
+
+    sep = _RING_SEP.get(density, "   ")
+    parts = []
+
+    if no_quota:
+        rgb = _severity_color(theme, ctx_pct, _CW, _CC)
+        parts.append(f"{ring(ctx_pct, rgb)} {pct_text(ctx_pct)} {MUTE}ctx{RESET}")
+    elif quota_stale and msgs_pct is None and weekly_pct is None:
+        label = "5h/7d" if show_five_hour else "7d"
+        parts.append(f"{_fg(theme.s_warn)}⟳ {label} stale·restart{RESET}")
+    else:
+        if show_five_hour:
+            parts.append(window("5h", msgs_pct, projection_5h, forecast_5h,
+                                reset_5h, countdown_emoji))
+        if show_weekly:
+            parts.append(window("7d", weekly_pct, projection_7d, forecast_7d,
+                                reset_7d))
+
+    accent = _fg(_blend(theme.s_hot, theme.ink, 0.5))
+    if ctx_pct is not None and not no_quota:
+        name = _AURORA_TOKENS_RE.sub("", str(model))
+        rgb = _severity_color(theme, ctx_pct, _CW, _CC)
+        parts.append(f"{accent}{name}{RESET} {MUTE}ctx {_fg(rgb)}"
+                     f"{int(round(ctx_pct))}%{RESET}")
+    else:
+        parts.append(f"{accent}{model}{RESET}")
+
+    if balance_text:
+        parts.append(f"{_fg(theme.s_ok)}{balance_text}{RESET}")
+    if cost_text:
+        parts.append(f"{MUTE}$ {INK}{cost_text}{RESET}")
+    if lang_body:
+        parts.append(f"{MUTE}{lang_body}{RESET}")
+    if cache_age_text:
+        col = _fg(_cache_severity(theme, cache_age_text))
+        parts.append(f"{col}❄ {_aurora_cache_text(cache_age_text)}{RESET}")
+    if bypass:
+        parts.append(f"{_fg(theme.s_hot)}{BOLD}⚠ BYPASS{RESET}")
+
+    line = sep.join(parts)
+    if _segments is not None:
+        _segments.extend(parts if use_color else [_strip(part) for part in parts])
+    if not use_color:
+        return _strip(line)
+    return line
+
+
+_RING_SEP = {"compact": "  ", "regular": "   ", "cozy": "    "}
 
 
 # ---------------------------------------------------------------------------
@@ -1103,10 +1222,15 @@ def render_mode_line(*, effort: str = "", thinking=None, fast=None,
 
 RENDERERS = {
     "aurora": render_aurora,
+    "ring":   render_ring,
     "classic":  render_classic,
     "capsule":  render_capsule,
     "hairline": render_hairline,
 }
+
+
+# Styles that share Aurora's quiet identity / OCS / reset lines.
+_AURORA_FAMILY = ("aurora", "ring")
 
 
 def is_known_style(style: str) -> bool:
@@ -1167,17 +1291,18 @@ def render(style: str, **kwargs) -> str:
     out = fn(**kwargs, _segments=parts)
     if reset_text and "\n" not in out:
         # A trailing quota segment, not a new line: the bar stays as tall as before.
-        seg = render_reset_segment(reset_text, theme=theme, quiet=style == "aurora",
+        seg = render_reset_segment(reset_text, theme=theme, quiet=style in _AURORA_FAMILY,
                                    use_color=use_color)
         pad = DENSITY_PAD.get(kwargs.get("density", "regular"), " ")
-        sep = " | " if fn is render_classic else (
+        sep = " | " if fn is render_classic else _RING_SEP.get(
+            kwargs.get("density", "regular"), "   ") if fn is render_ring else (
             f"{pad}{_fg(theme.edge)}│{RESET}{pad}" if style == "aurora" and use_color
             else f"{pad}│{pad}" if style == "aurora" else " │ ")
         out += sep + seg
         parts.append(seg)
     if max_width is not None and max_width > 0 and visible_width(out) > max_width:
         # Pack whole segments; only an individually oversized segment is clipped.
-        sep = " | " if fn is render_classic else " │ "
+        sep = " | " if fn is render_classic else "   " if fn is render_ring else " │ "
         if narrow_layout == "drop":
             while len(parts) > 1 and visible_width(sep.join(parts)) > max_width:
                 parts.pop()
@@ -1196,7 +1321,7 @@ def render(style: str, **kwargs) -> str:
     if show_pb and info is not None:
         version_text = _statusbar_version() if show_version else ""
         update_text = _update_hint() if show_version else ""
-        identity_fn = render_identity_line_aurora if style == "aurora" else render_identity_line
+        identity_fn = render_identity_line_aurora if style in _AURORA_FAMILY else render_identity_line
         out = out + "\n" + identity_fn(
             info, theme=theme, dirty=dirty, ahead=ahead, behind=behind,
             duration_text=duration_text, lines_text=lines_text,
@@ -1216,7 +1341,7 @@ def render(style: str, **kwargs) -> str:
     if looks_hint:
         from .picker import hint_text
         out += "\n" + hint_text(ui_lang)
-    if ocs_text and style == "aurora":
+    if ocs_text and style in _AURORA_FAMILY:
         out += "\n" + render_ocs_line_aurora(ocs_text, ocs_unread, ocs_lan,
                                               theme=theme, use_color=use_color, lang=ui_lang)
     elif ocs_text:

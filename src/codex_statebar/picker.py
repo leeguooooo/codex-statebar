@@ -1,6 +1,6 @@
-"""`cxs theme` — pick one of the three looks with a live preview.
+"""`cxs theme` — pick one of the four looks with a live preview.
 
-Arrow keys (or j/k, or 1-3) move, Enter applies, q / Esc / Ctrl-C cancels.
+Arrow keys (or j/k, or 1-4) move, Enter applies, q / Esc / Ctrl-C cancels.
 Without a terminal it just prints the looks and how to switch. On Windows
 (no termios) it falls back to typing a number.
 """
@@ -13,18 +13,20 @@ from typing import Optional
 LOOKS = [
     ("block", "aurora", "block", "label_block", "cxs config set bar_glyph block"),
     ("thin", "aurora", "thin", "label_thin", "cxs config set bar_glyph thin"),
+    ("ring", "ring", "block", "label_ring", "cxs config set style ring"),
     ("classic", "classic", "block", "label_classic", "cxs config set style classic"),
 ]
 
 TEXT = {
     "title":         {"zh": "选择状态栏外观", "en": "Pick a status-bar look"},
-    "keys":          {"zh": "↑/↓ 或 1-3 选择 · 回车应用 · q 取消",
-                      "en": "↑/↓ or 1-3 to move · Enter to apply · q to cancel"},
+    "keys":          {"zh": "↑/↓ 或 1-4 选择 · 回车应用 · q 取消",
+                      "en": "↑/↓ or 1-4 to move · Enter to apply · q to cancel"},
     "current":       {"zh": "← 当前", "en": "← current"},
     "label_block":   {"zh": "Aurora 方块（默认）", "en": "Aurora, block bars (default)"},
     "label_thin":    {"zh": "Aurora 细线", "en": "Aurora, thin line"},
+    "label_ring":    {"zh": "Ring 圆环", "en": "Ring"},
     "label_classic": {"zh": "Classic 原版", "en": "Classic"},
-    "prompt":        {"zh": "输入 1-3 应用（回车取消）：", "en": "Type 1-3 to apply (Enter cancels): "},
+    "prompt":        {"zh": "输入 1-4 应用（回车取消）：", "en": "Type 1-4 to apply (Enter cancels): "},
     "cancelled":     {"zh": "已取消，外观没变。", "en": "Cancelled — look unchanged."},
     "unchanged":     {"zh": "没变，还是当前这个。", "en": "No change — that's already the current look."},
     "applied":       {"zh": "已切换到 {label}，状态栏下一次刷新就生效。",
@@ -45,8 +47,8 @@ R = "\033[0m"
 
 
 def current_look(cfg) -> str:
-    if cfg.style == "classic":
-        return "classic"
+    if cfg.style in ("classic", "ring"):
+        return cfg.style
     return "thin" if cfg.bar_glyph == "thin" else "block"
 
 
@@ -130,7 +132,7 @@ def _interactive(cur: str, previews: list, color: bool) -> Optional[str]:
                 sel = (sel - 1) % len(LOOKS)
             elif key == "down":
                 sel = (sel + 1) % len(LOOKS)
-            elif key in ("1", "2", "3"):
+            elif key in ("1", "2", "3", "4"):
                 sel = int(key) - 1
             elif key == "enter":
                 return LOOKS[sel][0]
@@ -148,7 +150,7 @@ def _numbered(cur: str, previews: list, color: bool) -> Optional[str]:
         ans = input(t("prompt")).strip()
     except (EOFError, KeyboardInterrupt):
         return None
-    if ans in ("1", "2", "3"):
+    if ans in ("1", "2", "3", "4"):
         return LOOKS[int(ans) - 1][0]
     return None
 

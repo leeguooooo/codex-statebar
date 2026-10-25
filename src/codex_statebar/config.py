@@ -19,7 +19,7 @@ CLAUDE_CONFIG_PATH = Path(
     os.environ.get("CLAUDE_CONFIG_DIR", Path.home() / ".claude")
 ) / "claude-statusbar.json"
 
-LOOKS_VERSION = 1
+LOOKS_VERSION = 2
 
 DEFAULT_STYLE = "aurora"      # saved styles and inherited Claude preferences win
 DEFAULT_THEME = "graphite"

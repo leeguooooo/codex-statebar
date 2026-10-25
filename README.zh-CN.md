@@ -56,17 +56,17 @@ macOS / Linux 版首次启动时将运行时展开到 `~/.local/lib/codex-stateb
 
 ## 新外观、worktree 与 OCS
 
-三种外观：Aurora 方块（默认）、Aurora 细线、Classic。
+四种外观：Aurora 方块（默认）、Aurora 细线、Ring 圆环（`◔ 14% 5h · resets 1h07m   ◕ 83% 7d · resets 3d04h`）、Classic。
 
 ![Aurora 方块（默认）](https://raw.githubusercontent.com/leeguooooo/codex-statebar/main/docs/images/look-aurora.png)
 ![Aurora 细线](https://raw.githubusercontent.com/leeguooooo/codex-statebar/main/docs/images/look-thin.png)
 ![Classic](https://raw.githubusercontent.com/leeguooooo/codex-statebar/main/docs/images/look-classic.png)
 
-- 首次遇到新的外观集合，状态栏显示 `New looks · cxs theme`。运行 `cxs theme` 用方向键选择 Aurora 方块、Aurora 细线或 Classic；取消保留原来的样式。`cxs themes` 仍列出配色。
+- 首次遇到新的外观集合，状态栏显示 `New looks · cxs theme`。运行 `cxs theme` 用方向键选择 Aurora 方块、Aurora 细线、Ring 圆环或 Classic；取消保留原来的样式。`cxs themes` 仍列出配色。
 - worktree 显示名称、主仓库名与有效 checkout 数量，已删除 checkout 的残留记录不计入。主 checkout 也显示数量，便于分辨正在修改哪棵树。可配置 `worktree_glyph` 与 `color_worktree`。
 - 已安装 OCS 时独立显示当前 Codex 会话地址、未读消息和 LAN 状态。按完整 thread ID 校验，避免显示同目录的另一会话；状态只通过只读 OCS CLI 查询，约 30 秒更新一次。
 - 每 6 小时后台检查 GitHub Release，发现新版时自动校验并升级。`cxs config set auto_upgrade false` 保留检查及新版提示，关闭自动安装；`CODEX_STATEBAR_NO_UPDATE=1` 关闭检查。手动运行 `cxs upgrade --check` 或 `cxs upgrade`。若需要更换原生 Codex 版本，后台保留提示，退出 Codex 后手动升级，避免破坏正在运行的执行组件。Windows 只提示重新安装。
 
-Codex 不提供的五小时额度、Claude prompt-cache TTL 和按 Claude 模型划分的额度不会伪造显示。Git、活动、任务、推理强度、主题、预测、独立终端面板和诊断保留。
+五小时额度只在 Codex 上报时显示（Pro 有，100 和 200 套餐没有），并带自然重置倒计时；两个窗口同时出现时，Aurora 去掉上下文小条、只留百分比。Codex 不提供的 Claude prompt-cache TTL 和按 Claude 模型划分的额度不会伪造显示。Git、活动、任务、推理强度、主题、预测、独立终端面板和诊断保留。
 
 完整安装说明与资源保留规则见 [README.zh-CN.html](README.zh-CN.html)。

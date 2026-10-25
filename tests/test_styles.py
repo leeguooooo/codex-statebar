@@ -24,7 +24,7 @@ SAMPLE = dict(
 
 
 def test_builtin_styles():
-    assert set(list_styles()) == {"aurora", "classic", "capsule", "hairline"}
+    assert set(list_styles()) == {"aurora", "ring", "classic", "capsule", "hairline"}
 
 
 def test_builtin_themes():
@@ -153,3 +153,26 @@ def test_every_theme_has_pill_cost():
             f"{t.name}.pill_cost must be an RGB 3-tuple"
         assert t.pill_cost != t.pill_lang, \
             f"{t.name}.pill_cost must differ from pill_lang (collision is the bug)"
+
+
+def test_ring_shows_both_windows_with_resets():
+    out = render("ring", **{**SAMPLE, "model": "gpt-6.1", "ctx_pct": 20.0},
+                 use_color=False)
+    assert "◑ 42% 5h · resets 2h47m" in out
+    assert "◔ 18% 7d · resets 3d12h" in out
+    assert "gpt-6.1 ctx 20%" in out
+    assert "│" not in out
+
+
+def test_ring_hides_five_hour_and_unknown_reset():
+    out = render("ring", **{**SAMPLE, "reset_7d": "--"}, show_five_hour=False,
+                 use_color=False)
+    assert "5h" not in out
+    assert "18% 7d" in out and "resets" not in out
+
+
+def test_aurora_drops_context_bar_when_five_hour_shown():
+    kw = {**SAMPLE, "model": "gpt-6.1", "ctx_pct": 20.0, "bar_glyph": "thin"}
+    assert "gpt-6.1 20%" in render("aurora", **kw, use_color=False)
+    weekly_only = render("aurora", **kw, show_five_hour=False, use_color=False)
+    assert "gpt-6.1 ━" in weekly_only and "5h" not in weekly_only

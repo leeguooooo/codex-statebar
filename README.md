@@ -56,17 +56,17 @@ The installer configures everything; open a new terminal and run `codex`. The cu
 
 ## New looks, worktrees and OCS
 
-Three looks: Aurora with block bars (default), Aurora with a thin line, and Classic.
+Four looks: Aurora with block bars (default), Aurora with a thin line, Ring (`◔ 14% 5h · resets 1h07m   ◕ 83% 7d · resets 3d04h`), and Classic.
 
 ![Aurora, block bars (default)](https://raw.githubusercontent.com/leeguooooo/codex-statebar/main/docs/images/look-aurora.png)
 ![Aurora, thin line](https://raw.githubusercontent.com/leeguooooo/codex-statebar/main/docs/images/look-thin.png)
 ![Classic](https://raw.githubusercontent.com/leeguooooo/codex-statebar/main/docs/images/look-classic.png)
 
-- When a new set of looks ships, the status bar shows `New looks · cxs theme`. Run `cxs theme` and use the arrow keys to pick Aurora block, Aurora thin or Classic; cancelling keeps your current style. `cxs themes` still lists the palettes.
+- When a new set of looks ships, the status bar shows `New looks · cxs theme`. Run `cxs theme` and use the arrow keys to pick Aurora block, Aurora thin, Ring or Classic; cancelling keeps your current style. `cxs themes` still lists the palettes.
 - The worktree line shows the checkout name, the main repository and the number of live checkouts; leftover records of deleted checkouts are not counted. The main checkout shows the count too, so you can tell which tree you are editing. Configure it with `worktree_glyph` and `color_worktree`.
 - With OCS installed, a separate line shows the current Codex session's address, unread messages and LAN state. It is matched by the full thread ID, so another session in the same directory is never shown; status comes only from the read-only OCS CLI and refreshes about every 30 seconds.
 - Every 6 hours a background check looks for a new GitHub Release and installs it after verification. `cxs config set auto_upgrade false` keeps the check and the update hint but turns off automatic installs; `CODEX_STATEBAR_NO_UPDATE=1` turns off the check. Run `cxs upgrade --check` or `cxs upgrade` by hand. When an update changes the native Codex version, it only shows a hint: exit Codex, then upgrade by hand, so running sessions keep working. On Windows it only suggests reinstalling.
 
-Things Codex does not report — a five-hour quota, Claude's prompt-cache TTL and per-Claude-model quotas — are never faked. Git, activity, tasks, reasoning effort, themes, projections, the standalone terminal panel and diagnostics are all kept.
+The five-hour window appears only when Codex reports one (Pro does; the 100 and 200 plans do not), together with its natural reset countdown; with both windows on the line, Aurora drops the context mini bar and keeps the percentage. Things Codex does not report — Claude's prompt-cache TTL and per-Claude-model quotas — are never faked. Git, activity, tasks, reasoning effort, themes, projections, the standalone terminal panel and diagnostics are all kept.
 
 Full install notes and resource retention rules: [README.html](README.html).

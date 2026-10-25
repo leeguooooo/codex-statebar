@@ -70,7 +70,7 @@ cxs doctor</pre>
 
   <section>
     <h2>固定会话的实时看板</h2>
-    <p>Codex 的显示和预览只展示每周额度与上下文，不显示 5 小时栏。</p>
+    <p>5 小时额度只在 Codex 上报时显示（Pro 有，100 和 200 套餐没有），并带自然重置倒计时。两个窗口同时出现时，Aurora 去掉上下文小条，只留百分比。</p>
     <pre>cxs watch --session &lt;thread-id&gt; --style aurora --theme nord --interval 1</pre>
     <p>省略 --session 时跟随当前目录最近的顶层 CLI 会话；指定会话或路径后，找不到就显示缺失，不会改选另一场会话。Ctrl+C 退出并恢复原来的屏幕和光标。重定向到文件时输出纯文本；可用 --no-color 关闭颜色。</p>
     <p>上下文和额度分别取最近一次有效记录。已过重置时间的额度显示未知，等待新数据，不会伪造为零；空 token 事件不会抹掉先前的上下文数据。</p>
@@ -88,7 +88,7 @@ cxs doctor</pre>
 
   <section>
     <h2>新外观、worktree、OCS 和更新</h2>
-    <p>状态栏遇到新外观集合时提示 <code>New looks · cxs theme</code>。运行 <code>cxs theme</code>，用方向键和回车选择 Aurora 方块、Aurora 细线或 Classic，取消保留原样式；查看后提示消失。可用 <code>lang zh</code> 或 <code>lang en</code> 设置提示语言，默认跟随系统。也可直接设置 <code>bar_glyph thin</code>。窄终端可选 <code>narrow_layout stack</code> 换行保留字段，或 <code>narrow_layout drop</code> 隐藏末尾字段。<code>cxs themes</code> 仍列出配色。</p>
+    <p>状态栏遇到新外观集合时提示 <code>New looks · cxs theme</code>。运行 <code>cxs theme</code>，用方向键和回车选择 Aurora 方块、Aurora 细线、Ring 圆环或 Classic，取消保留原样式；查看后提示消失。可用 <code>lang zh</code> 或 <code>lang en</code> 设置提示语言，默认跟随系统。也可直接设置 <code>bar_glyph thin</code>。窄终端可选 <code>narrow_layout stack</code> 换行保留字段，或 <code>narrow_layout drop</code> 隐藏末尾字段。<code>cxs themes</code> 仍列出配色。</p>
     <p><img src="https://raw.githubusercontent.com/leeguooooo/codex-statebar/main/docs/images/look-aurora.png" alt="Aurora 方块（默认）" width="800"><br>
        <img src="https://raw.githubusercontent.com/leeguooooo/codex-statebar/main/docs/images/look-thin.png" alt="Aurora 细线" width="800"><br>
        <img src="https://raw.githubusercontent.com/leeguooooo/codex-statebar/main/docs/images/look-classic.png" alt="Classic" width="800"></p>

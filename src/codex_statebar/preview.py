@@ -160,6 +160,7 @@ def run(use_color: bool = True, theme_filter: Optional[str] = None,
 
     style_titles = {
         "aurora": "00 · AURORA（渐变进度条）",
+        "ring":   "00 · RING（圆环）",
         "classic":  "01 · CLASSIC（原版）",
         "capsule":  "02 · CAPSULE（胶囊）",
         "hairline": "03 · HAIRLINE（极简线条）",

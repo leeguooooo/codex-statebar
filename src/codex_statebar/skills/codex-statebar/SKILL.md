@@ -21,7 +21,7 @@ Use `cxs` for Codex CLI status-bar requests. Prefer commands over editing
 | Configure Codex native fallback | `cxs --setup` |
 | Inspect config | `cxs config show` |
 | Switch theme | `cxs config set theme <name>` |
-| Switch style | `cxs config set style <aurora\|classic\|capsule\|hairline>` |
+| Switch style | `cxs config set style <aurora\|ring\|classic\|capsule\|hairline>` |
 | Change density | `cxs config set density <compact\|regular\|cozy>` |
 | Preview combinations | `cxs preview` |
 | List themes/styles | `cxs themes` / `cxs styles` |

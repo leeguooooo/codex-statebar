@@ -70,7 +70,7 @@ cxs doctor</pre>
 
   <section>
     <h2>Live panel for one session</h2>
-    <p>For Codex, the display and previews show only the weekly quota and context; there is no 5-hour bar.</p>
+    <p>The 5-hour window appears only when Codex reports one (Pro does; the 100 and 200 plans do not), with its natural reset countdown. With both windows shown, Aurora drops the context mini bar and keeps the percentage.</p>
     <pre>cxs watch --session &lt;thread-id&gt; --style aurora --theme nord --interval 1</pre>
     <p>Without --session it follows the most recent top-level CLI session in the current directory. With a session or path given, a missing one is shown as missing; it never switches to another session. Ctrl+C exits and restores the previous screen and cursor. Redirected to a file it writes plain text; --no-color turns colors off.</p>
     <p>Context and quota each come from their latest valid record. A quota past its reset time shows as unknown until new data arrives instead of a fake zero, and an empty token event never wipes the previous context data.</p>
@@ -88,7 +88,7 @@ cxs doctor</pre>
 
   <section>
     <h2>New looks, worktrees, OCS and updates</h2>
-    <p>When a new set of looks ships, the status bar shows <code>New looks · cxs theme</code>. Run <code>cxs theme</code> and pick Aurora block, Aurora thin or Classic with the arrow keys and Enter; cancelling keeps your current style, and the hint disappears once you have looked. Set the hint language with <code>lang zh</code> or <code>lang en</code>; it follows the system by default. You can also set <code>bar_glyph thin</code> directly. For narrow terminals, <code>narrow_layout stack</code> wraps fields onto more lines and <code>narrow_layout drop</code> hides trailing fields. <code>cxs themes</code> still lists the palettes.</p>
+    <p>When a new set of looks ships, the status bar shows <code>New looks · cxs theme</code>. Run <code>cxs theme</code> and pick Aurora block, Aurora thin, Ring or Classic with the arrow keys and Enter; cancelling keeps your current style, and the hint disappears once you have looked. Set the hint language with <code>lang zh</code> or <code>lang en</code>; it follows the system by default. You can also set <code>bar_glyph thin</code> directly. For narrow terminals, <code>narrow_layout stack</code> wraps fields onto more lines and <code>narrow_layout drop</code> hides trailing fields. <code>cxs themes</code> still lists the palettes.</p>
     <p><img src="https://raw.githubusercontent.com/leeguooooo/codex-statebar/main/docs/images/look-aurora.png" alt="Aurora, block bars (default)" width="800"><br>
        <img src="https://raw.githubusercontent.com/leeguooooo/codex-statebar/main/docs/images/look-thin.png" alt="Aurora, thin line" width="800"><br>
        <img src="https://raw.githubusercontent.com/leeguooooo/codex-statebar/main/docs/images/look-classic.png" alt="Classic" width="800"></p>

@@ -132,6 +132,7 @@ def _run_styles_subcommand():
     from .styles import list_styles
     descriptions = {
         "aurora": "渐变进度条，独立显示上下文用量",
+        "ring":   "圆环进度 + 重置倒计时（◔ 14% 5h · resets 1h07m）",
         "classic":  "原始样式（带 [bar] 与 | 分隔）",
         "capsule":  "胶囊样式 — 带底色的药丸，地铁标识感",
         "hairline": "极简线条 — 3 格小条 + 虚线分隔",
