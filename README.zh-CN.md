@@ -2,6 +2,8 @@
 
 # Codex Statebar
 
+[English](README.md) · **简体中文**
+
 为 Codex CLI 显示配额、上下文、模型、推理强度、Git 状态、活动和用量预测。
 
 ![Aurora：默认外观，显示在 Codex 输入框下方](https://raw.githubusercontent.com/leeguooooo/codex-statebar/main/docs/images/look-aurora.png)
@@ -15,7 +17,7 @@ cxs doctor
 
 安装脚本会校验 SHA-256，安装 `cxs` 和补丁版 `codex-cxs`，再安装一个用户级 `codex` 启动器。已有的 `~/.local/bin/codex` 会先备份；ChatGPT App 内置二进制不会被修改。
 
-启动器会比较 PATH 中的官方 Codex 和补丁版：补丁版版本相同或更新时运行 `codex-cxs`；官方版更新时改为运行官方版，并提示嵌入式状态栏暂时停用。这样官方更新不会被旧补丁版静默遮住。`cxs upgrade` 会一起校验并更新 `cxs` 与 `codex-cxs`。
+启动器会比较 PATH 中的官方 Codex 和补丁版：补丁版版本相同或更新时运行 `codex-cxs`；官方版更新时改为运行官方版，嵌入式状态栏暂停，直到补丁版跟上；`cxs doctor` 会显示当前选择。这样官方更新不会被旧补丁版静默遮住。`cxs upgrade` 会一起校验并更新 `cxs` 与 `codex-cxs`。
 
 GitHub Actions 为 macOS 和 Linux 构建独立二进制，用户端不需要 Python 或 Rust。若不想安装用户级启动器：
 
@@ -67,4 +69,4 @@ macOS / Linux 版首次启动时将运行时展开到 `~/.local/lib/codex-stateb
 
 Codex 不提供的五小时额度、Claude prompt-cache TTL 和按 Claude 模型划分的额度不会伪造显示。Git、活动、任务、推理强度、主题、预测、独立终端面板和诊断保留。
 
-完整安装说明与资源保留规则见 [README.html](../README.html)。
+完整安装说明与资源保留规则见 [README.html](README.html)。
