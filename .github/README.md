@@ -1,3 +1,5 @@
+> 用 **Claude Code**？试试姊妹项目 **[Claude Status Bar](https://github.com/leeguooooo/claude-code-usage-bar)**：同款状态栏，专为 Claude Code 打造。
+
 # Codex Statebar
 
 为 Codex CLI 显示配额、上下文、模型、推理强度、Git 状态、活动和用量预测。
