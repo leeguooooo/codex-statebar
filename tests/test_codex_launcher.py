@@ -1,4 +1,5 @@
 import os
+import shutil
 from types import SimpleNamespace
 from pathlib import Path
 
@@ -396,3 +397,406 @@ def test_code_mode_host_rejects_other_version_or_architecture(tmp_path, monkeypa
 
     assert codex_launcher.ensure_code_mode_host(patched, official) is None
     assert not stale.exists() and not stale.is_symlink()
+
+
+def _launch_recording(monkeypatch, decision):
+    launched = []
+    monkeypatch.setattr(codex_launcher, "inspect_install", lambda: decision)
+    monkeypatch.setattr(
+        codex_launcher.os,
+        "execve",
+        lambda path, argv, env: launched.append((path, argv, env)),
+    )
+    return launched
+
+
+def _patched_decision(path: Path, version: str = "0.145.0"):
+    patched = codex_launcher.CodexBinary(
+        path, f"codex-cli {version}", (0, 145, 0, 1), True
+    )
+    return codex_launcher.LaunchDecision(patched, patched, None, "patched Codex is current")
+
+
+def _alias_files(managed: Path):
+    return sorted(p for p in (managed / ".cxs-exec").rglob("*") if p.is_file())
+
+
+def test_patched_launch_execs_hardlink_named_codex(tmp_path, monkeypatch):
+    managed = tmp_path / "managed"
+    managed.mkdir()
+    patched = _binary(managed / "codex-cxs", "0.145.0")
+    decision = _patched_decision(patched)
+    launched = _launch_recording(monkeypatch, decision)
+
+    assert codex_launcher.launch(["--version"]) == 127
+    alias = codex_launcher.exec_alias_path(decision.selected)
+    assert alias.name == "codex"
+    assert alias.parent.parent == managed / ".cxs-exec"
+    assert launched == [(str(alias), [str(alias), "--version"], launched[0][2])]
+    assert os.path.samefile(alias, patched)
+
+
+def test_alias_is_rebuilt_after_update_replaces_patched_binary(tmp_path, monkeypatch):
+    managed = tmp_path / "managed"
+    managed.mkdir()
+    patched = _binary(managed / "codex-cxs", "0.145.0")
+    old = _patched_decision(patched)
+    _launch_recording(monkeypatch, old)
+    codex_launcher.launch([])
+    old_alias = codex_launcher.exec_alias_path(old.selected)
+
+    updated = tmp_path / "updated"
+    _binary(updated, "0.146.0")
+    os.replace(updated, patched)
+    new = _patched_decision(patched, "0.146.0")
+    launched = _launch_recording(monkeypatch, new)
+    codex_launcher.launch([])
+
+    new_alias = codex_launcher.exec_alias_path(new.selected)
+    assert new_alias != old_alias
+    assert launched[0][0] == str(new_alias)
+    assert os.path.samefile(new_alias, patched)
+    assert old_alias.parent.exists(), "the previous version stays for sessions started before the upgrade"
+    assert not list((managed / ".cxs-exec").rglob(".codex.*.tmp"))
+
+    newer = tmp_path / "newer"
+    _binary(newer, "0.147.0")
+    os.replace(newer, patched)
+    _launch_recording(monkeypatch, _patched_decision(patched, "0.147.0"))
+    codex_launcher.launch([])
+    assert not old_alias.parent.exists(), "versions older than the previous one are pruned"
+    assert new_alias.parent.exists()
+
+
+def test_alias_failure_falls_back_to_patched_path(tmp_path, monkeypatch):
+    managed = tmp_path / "managed"
+    managed.mkdir()
+    patched = _binary(managed / "codex-cxs", "0.145.0")
+    launched = _launch_recording(monkeypatch, _patched_decision(patched))
+
+    def refuse_link(*_args, **_kwargs):
+        raise OSError("cross-device link")
+
+    monkeypatch.setattr(codex_launcher.os, "link", refuse_link)
+
+    assert codex_launcher.launch(["--version"]) == 127
+    assert launched == [(str(patched), [str(patched), "--version"], launched[0][2])]
+    assert not _alias_files(managed)
+
+
+def test_exec_failure_after_publish_retries_selected_path_once(tmp_path, monkeypatch, capsys):
+    managed = tmp_path / "managed"
+    managed.mkdir()
+    patched = _binary(managed / "codex-cxs", "0.145.0")
+    decision = _patched_decision(patched)
+    monkeypatch.setattr(codex_launcher, "inspect_install", lambda: decision)
+    calls = []
+
+    def execve(path, argv, env):
+        calls.append((path, argv, env))
+        if path != str(patched):
+            raise OSError("Exec format error")
+
+    monkeypatch.setattr(codex_launcher.os, "execve", execve)
+
+    assert codex_launcher.launch(["--version"]) == 127
+    alias = codex_launcher.exec_alias_path(decision.selected)
+    assert alias.is_file(), "the link was published before exec failed"
+    assert [c[0] for c in calls] == [str(alias), str(patched)]
+    assert calls[0][1] == [str(alias), "--version"]
+    assert calls[1][1] == [str(patched), "--version"]
+    assert calls[0][2] == calls[1][2]
+    assert capsys.readouterr().err == ""
+
+
+def test_both_exec_failures_report_once_without_recursive_retry(tmp_path, monkeypatch, capsys):
+    managed = tmp_path / "managed"
+    managed.mkdir()
+    patched = _binary(managed / "codex-cxs", "0.145.0")
+    monkeypatch.setattr(codex_launcher, "inspect_install", lambda: _patched_decision(patched))
+    calls = []
+
+    def execve(path, argv, env):
+        calls.append(path)
+        raise OSError("Exec format error")
+
+    monkeypatch.setattr(codex_launcher.os, "execve", execve)
+
+    assert codex_launcher.launch([]) == 127
+    assert calls == [str(codex_launcher.exec_alias_path(_patched_decision(patched).selected)), str(patched)]
+    assert "could not start" in capsys.readouterr().err
+
+
+def test_stale_launcher_cannot_overwrite_newer_alias(tmp_path, monkeypatch):
+    # A selects v1 and publishes its link, then pauses before exec.
+    # The updater replaces the binary; B publishes v2 and execs it.
+    # A resumes: its own version directory is kept as the previous version, so it
+    # runs the v1 binary it selected (never a v1/v2 mix); a pruned path falls back.
+    managed = tmp_path / "managed"
+    managed.mkdir()
+    patched = _binary(managed / "codex-cxs", "0.145.0")
+    decision_a = _patched_decision(patched)
+    candidates_a = codex_launcher._candidate_paths(decision_a.selected)
+    alias_a = candidates_a[0]
+    assert alias_a == codex_launcher.exec_alias_path(decision_a.selected)
+
+    updated = tmp_path / "updated"
+    _binary(updated, "0.146.0")
+    os.replace(updated, patched)
+
+    decision_b = _patched_decision(patched, "0.146.0")
+    launched_b = _launch_recording(monkeypatch, decision_b)
+    codex_launcher.launch([])
+    alias_b = codex_launcher.exec_alias_path(decision_b.selected)
+    assert launched_b[0][0] == str(alias_b)
+    assert os.path.samefile(alias_b, patched)
+    assert "0.146.0" in alias_b.read_text(encoding="utf-8")
+    assert "0.145.0" in alias_a.read_text(encoding="utf-8"), "A's pinned link still points at v1"
+
+    calls_a = []
+
+    def execve_a(path, argv, env):
+        calls_a.append(path)
+        if path == str(alias_a) and not alias_a.exists():
+            raise FileNotFoundError(path)
+
+    monkeypatch.setattr(codex_launcher.os, "execve", execve_a)
+    assert codex_launcher._exec_chain(candidates_a, []) == 127
+    assert calls_a == [str(alias_a)], "A execs its own v1 link"
+
+    shutil.rmtree(alias_a.parent)
+    calls_a.clear()
+    assert codex_launcher._exec_chain(candidates_a, []) == 127
+    assert calls_a == [str(patched)], "a pruned link is skipped before exec and falls back to the source path"
+
+
+def test_official_launch_does_not_create_alias(tmp_path, monkeypatch):
+    managed = tmp_path / "managed"
+    official_dir = tmp_path / "official"
+    managed.mkdir()
+    official_dir.mkdir()
+    official_path = _binary(official_dir / "codex", "0.153.2")
+    official = codex_launcher.CodexBinary(
+        official_path, "codex-cli 0.153.2", (0, 153, 2, 1), False
+    )
+    decision = codex_launcher.LaunchDecision(official, None, official, "patched Codex is not installed")
+    launched = _launch_recording(monkeypatch, decision)
+
+    assert codex_launcher.launch([]) == 127
+    assert launched == [(str(official_path), [str(official_path)], launched[0][2])]
+    assert not (managed / ".cxs-exec").exists()
+
+
+def test_symlinked_alias_root_is_refused_and_external_data_kept(tmp_path, monkeypatch):
+    managed = tmp_path / "managed"
+    managed.mkdir()
+    patched = _binary(managed / "codex-cxs", "0.145.0")
+    external = tmp_path / "external"
+    external.mkdir()
+    (external / "keep.txt").write_text("user data", encoding="utf-8")
+    (managed / ".cxs-exec").symlink_to(external, target_is_directory=True)
+    launched = _launch_recording(monkeypatch, _patched_decision(patched))
+
+    assert codex_launcher.launch([]) == 127
+    assert launched == [(str(patched), [str(patched)], launched[0][2])]
+    assert sorted(p.name for p in external.iterdir()) == ["keep.txt"]
+    assert (external / "keep.txt").read_text(encoding="utf-8") == "user data"
+
+
+def test_prune_keeps_unknown_entries_and_symlinked_version_dirs(tmp_path, monkeypatch):
+    managed = tmp_path / "managed"
+    managed.mkdir()
+    patched = _binary(managed / "codex-cxs", "0.145.0")
+    root = managed / ".cxs-exec"
+    root.mkdir()
+    unknown = root / "notes"
+    unknown.mkdir()
+    (unknown / "keep.txt").write_text("unknown", encoding="utf-8")
+    stale = root / "1-2-3"
+    stale.mkdir()
+    (stale / "codex").write_text("old", encoding="utf-8")
+    previous = root / "1-2-4"
+    previous.mkdir()
+    (previous / "codex").write_text("previous", encoding="utf-8")
+    os.utime(stale, ns=(1_000_000_000, 1_000_000_000))
+    external = tmp_path / "external"
+    external.mkdir()
+    (external / "keep.txt").write_text("user data", encoding="utf-8")
+    (root / "4-5-6").symlink_to(external, target_is_directory=True)
+    _launch_recording(monkeypatch, _patched_decision(patched))
+
+    codex_launcher.launch([])
+
+    assert (unknown / "keep.txt").read_text(encoding="utf-8") == "unknown"
+    assert not stale.exists(), "stale version directory is pruned"
+    assert previous.exists(), "the newest other version is kept"
+    assert (root / "4-5-6").is_symlink()
+    assert (external / "keep.txt").read_text(encoding="utf-8") == "user data"
+
+
+def test_alias_directory_links_the_code_mode_host_beside_the_alias(tmp_path, monkeypatch):
+    # Codex looks for codex-code-mode-host beside the executable it was started as.
+    managed = tmp_path / "managed"
+    managed.mkdir()
+    source = managed / "codex-cxs"
+    source.write_bytes(b"patched")
+    source.chmod(0o755)
+    host = managed / codex_launcher._code_mode_host_name()
+    host.write_bytes(b"host")
+    host.chmod(0o755)
+    patched = codex_launcher.CodexBinary(source, "codex-cli 0.164.0", (0, 164, 0, 1), True)
+    monkeypatch.setattr(codex_launcher, "ensure_code_mode_host", lambda selected, official: host)
+    launched = _launch_recording(monkeypatch, codex_launcher.LaunchDecision(patched, patched, None, "patched current"))
+
+    codex_launcher.launch([])
+
+    alias = Path(launched[0][0])
+    assert alias.name == "codex"
+    beside = alias.parent / codex_launcher._code_mode_host_name()
+    assert not beside.is_symlink() and os.path.samefile(beside, host), "release host is pinned by a hard link"
+
+
+def test_alias_is_skipped_when_the_code_mode_host_cannot_be_linked(tmp_path, monkeypatch):
+    managed = tmp_path / "managed"
+    managed.mkdir()
+    source = managed / "codex-cxs"
+    source.write_bytes(b"patched")
+    source.chmod(0o755)
+    host = managed / codex_launcher._code_mode_host_name()
+    host.write_bytes(b"host")
+    patched = codex_launcher.CodexBinary(source, "codex-cli 0.164.0", (0, 164, 0, 1), True)
+    monkeypatch.setattr(codex_launcher, "ensure_code_mode_host", lambda selected, official: host)
+
+    real_link = os.link
+
+    def refuse_host(src, dst, *args, **kwargs):
+        if Path(src).name == codex_launcher._code_mode_host_name():
+            raise OSError("read-only")
+        return real_link(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(codex_launcher.os, "link", refuse_host)
+    launched = _launch_recording(monkeypatch, codex_launcher.LaunchDecision(patched, patched, None, "patched current"))
+
+    codex_launcher.launch([])
+
+    assert launched[0][0] == str(source), "without the host beside it, the alias would break code mode"
+
+
+def _write_exec(path, text):
+    path.write_text(text, encoding="utf-8")
+    path.chmod(0o755)
+    return path
+
+
+def test_upgrade_after_publish_keeps_binary_and_host_paired(tmp_path, monkeypatch):
+    # A publishes binary A + host A, then the updater replaces both with B.
+    # A's directory must still hold the A pair, never binary A with host B.
+    managed = tmp_path / "managed"
+    managed.mkdir()
+    source = _write_exec(managed / "codex-cxs", "binary-A")
+    host = _write_exec(managed / codex_launcher._code_mode_host_name(), "host-A")
+    patched = codex_launcher.CodexBinary(source, "codex-cli 0.164.0", (0, 164, 0, 1), True)
+    candidates_a = codex_launcher._candidate_paths(patched, host)
+    alias_a = candidates_a[0]
+    assert alias_a.name == "codex"
+
+    for name, text in [(host.name, "host-B"), (source.name, "binary-B")]:
+        staged = _write_exec(managed / (name + ".new"), text)
+        os.replace(staged, managed / name)
+
+    host_a = alias_a.parent / codex_launcher._code_mode_host_name()
+    assert alias_a.read_text(encoding="utf-8") == "binary-A"
+    assert host_a.read_text(encoding="utf-8") == "host-A"
+
+
+def test_no_alias_while_the_updater_holds_its_lock(tmp_path, monkeypatch):
+    # Mid-upgrade the host may already be new while the binary is still old;
+    # a launcher must not pair them, so it falls back to the source path.
+    import fcntl
+    managed = tmp_path / "managed"
+    managed.mkdir()
+    source = _write_exec(managed / "codex-cxs", "binary-A")
+    host = _write_exec(managed / codex_launcher._code_mode_host_name(), "host-B")
+    patched = codex_launcher.CodexBinary(source, "codex-cli 0.164.0", (0, 164, 0, 1), True)
+    with (managed / ".cxs-upgrade.lock").open("a+") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        assert codex_launcher._candidate_paths(patched, host) == [source]
+    assert not (managed / ".cxs-exec").exists()
+
+
+@pytest.mark.parametrize("kill_session", [False, True])
+def test_active_alias_survives_two_upgrades_until_process_exits(tmp_path, kill_session):
+    import selectors
+    import subprocess
+    import sys
+
+    managed = tmp_path / "managed"
+    managed.mkdir()
+    source = managed / "codex-cxs"
+    host = managed / codex_launcher._code_mode_host_name()
+
+    def publish(version):
+        staged = _write_exec(
+            managed / "next",
+            '#!/bin/sh\necho ready\nread line\n"$(dirname "$0")/codex-code-mode-host"\n',
+        )
+        os.replace(staged, source)
+        staged = _write_exec(managed / "next", f"#!/bin/sh\necho host-{version}\n")
+        os.replace(staged, host)
+        selected = codex_launcher.CodexBinary(source, str(version), (0, version, 0, 1), True)
+        return codex_launcher._candidate_paths(selected, host)[0]
+
+    alias_a = publish(1)
+    process = subprocess.Popen(
+        [sys.executable, "-c",
+         "import sys; from pathlib import Path; from codex_statebar.codex_launcher "
+         "import _exec_chain; sys.exit(_exec_chain([Path(sys.argv[1])], []))", str(alias_a)],
+        env={**os.environ, "PYTHONPATH": str(Path(codex_launcher.__file__).parents[1])},
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    try:
+        with selectors.DefaultSelector() as ready:
+            ready.register(process.stdout, selectors.EVENT_READ)
+            assert ready.select(timeout=10), "alias did not start"
+        assert process.stdout.readline().strip() == "ready"
+        publish(2)
+        alias_c = publish(3)
+        assert process.poll() is None
+        assert (alias_a.parent / host.name).read_text() == "#!/bin/sh\necho host-1\n"
+        assert alias_a.exists()
+        if kill_session:
+            process.kill()
+            process.communicate(timeout=10)
+        else:
+            out, err = process.communicate("continue\n", timeout=10)
+            assert process.returncode == 0, err
+            assert out.strip() == "host-1"
+        codex_launcher._prune_alias_versions(alias_c.parent.parent, alias_c.parent.name)
+        assert not alias_a.parent.exists(), "exited sessions no longer pin old versions"
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.communicate(timeout=10)
+
+
+def test_symlinked_lease_directory_prevents_pruning(tmp_path):
+    managed = tmp_path / "managed"
+    managed.mkdir()
+    source = _write_exec(managed / "codex-cxs", "binary")
+    selected = codex_launcher.CodexBinary(source, "1", (0, 1, 0, 1), True)
+    alias = codex_launcher._candidate_paths(selected)[0]
+    root = alias.parent.parent
+    old = root / "1-2-3"
+    old.mkdir()
+    (old / "codex").write_text("old")
+    os.utime(old, ns=(1, 1))
+    previous = root / "1-2-4"
+    previous.mkdir()
+    external = tmp_path / "external"
+    external.mkdir()
+    (root / ".leases").symlink_to(external, target_is_directory=True)
+
+    codex_launcher._prune_alias_versions(root, alias.parent.name)
+
+    assert old.exists()
+    assert not list(external.iterdir())

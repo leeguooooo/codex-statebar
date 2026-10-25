@@ -2,6 +2,7 @@ import hashlib
 import io
 import os
 import platform
+import shutil
 import subprocess
 import tarfile
 from pathlib import Path
@@ -138,3 +139,41 @@ def test_one_click_migrates_old_managed_symlink_without_overwriting_binary(
     assert "managed by codex-statebar" in (install_dir / "codex").read_text()
     assert (install_dir / "codex-cxs").read_bytes() == patched
     assert list(install_dir.glob("codex.backup.*")) == []
+
+
+@pytest.mark.skipif(shutil.which("perl") is None, reason="lock helper needs perl")
+def test_install_swaps_codex_only_while_holding_the_upgrade_lock(tmp_path: Path):
+    # The launcher pins codex-cxs and its host under this lock in shared mode,
+    # so the installer must not swap them while anyone else holds it.
+    import fcntl
+    import time
+    target = _target()
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    _write_asset(assets, f"cxs-{target}.tar.gz", "cxs", b"#!/bin/sh\necho new-cxs\n")
+    _write_asset(assets, f"codex-cxs-{target}.tar.gz", "codex-cxs", b"#!/bin/sh\necho new-codex\n")
+    install_dir = tmp_path / "bin"
+    install_dir.mkdir()
+    (install_dir / "codex-cxs").write_text("old codex\n", encoding="utf-8")
+    env = os.environ.copy()
+    env.update({
+        "CODEX_STATEBAR_INSTALL_DIR": str(install_dir),
+        "CODEX_STATEBAR_RELEASE_BASE": assets.resolve().as_uri(),
+        "CODEX_STATEBAR_SKIP_SETUP": "1",
+    })
+    with (install_dir / ".cxs-upgrade.lock").open("a+") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_SH)
+        installer = subprocess.Popen(
+            ["sh", "install.sh"],
+            cwd=Path(__file__).resolve().parents[1],
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        time.sleep(3)
+        assert installer.poll() is None, "installer waits for the lock"
+        assert (install_dir / "codex-cxs").read_text(encoding="utf-8") == "old codex\n"
+    _out, err = installer.communicate(timeout=30)
+    assert installer.returncode == 0, err
+    assert "new-codex" in (install_dir / "codex-cxs").read_text(encoding="utf-8")
