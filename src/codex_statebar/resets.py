@@ -130,6 +130,7 @@ def main():
     import urllib.request
     from urllib.error import HTTPError
     from .cache import atomic_write_text
+    from .updater import _ssl_context
     entry = read_cache()
     now = time.time()
     try:
@@ -137,7 +138,7 @@ def main():
         if isinstance(entry.get("etag"), str):
             headers["If-None-Match"] = entry["etag"]
         try:
-            with urllib.request.urlopen(urllib.request.Request(URL, headers=headers), timeout=6) as response:
+            with urllib.request.urlopen(urllib.request.Request(URL, headers=headers), timeout=6, context=_ssl_context()) as response:
                 raw = response.read(1024 * 1024 + 1)
                 if len(raw) > 1024 * 1024:
                     raise ValueError("oversized status")

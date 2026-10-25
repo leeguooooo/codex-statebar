@@ -74,7 +74,8 @@ def test_refresh_uses_etag_and_retains_good_data_on_failure(monkeypatch):
     atomic_write_text(resets.root() / "resets.json", json.dumps(old))
     monkeypatch.setattr(resets.time, "time", lambda: NOW + 301)
 
-    def unchanged(req, timeout):
+    def unchanged(req, timeout, context):
+        assert context.check_hostname
         assert req.get_header("If-none-match") == '"v1"'
         raise HTTPError(req.full_url, 304, "unchanged", {}, None)
 
