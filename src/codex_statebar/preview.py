@@ -51,8 +51,10 @@ def _real_data() -> Optional[dict]:
         if size > 0:
             name = f"{name}({_fmt_num(used)}/{_fmt_num(size)})"
         transcript = status.get("rollout_path")
-        return dict(msgs_pct=None, weekly_pct=status.get("rate_limit_7d_pct"),
-                    reset_5h="--", reset_7d=_fmt_reset(status.get("rate_limit_7d_resets_at")),
+        return dict(msgs_pct=status.get("rate_limit_pct"),
+                    weekly_pct=status.get("rate_limit_7d_pct"),
+                    reset_5h=_fmt_reset(status.get("rate_limit_resets_at")),
+                    reset_7d=_fmt_reset(status.get("rate_limit_7d_resets_at")),
                     model=name, ctx_pct=pct, cache_age_text="", cost_text="",
                     activity=read_activity(transcript) if transcript else None,
                     duration_text="", lines_text="")
@@ -105,8 +107,9 @@ def _real_data() -> Optional[dict]:
 def _demo_data() -> dict:
     from .activity import ActivityInfo
     return dict(
-        msgs_pct=42, weekly_pct=18,
-        reset_5h="3h28m", reset_7d="5d12h",
+        # Most Codex plans report no 5h window; the demo matches them.
+        msgs_pct=None, weekly_pct=18,
+        reset_5h="--", reset_7d="5d12h",
         model="Opus 4.7(45.0k/1.0M)",
         cache_age_text="3m24s",  # warm — demo what countdown looks like
         cost_text="2.18",
@@ -199,7 +202,7 @@ def run(use_color: bool = True, theme_filter: Optional[str] = None,
                 lang_body="",
                 cost_text=data.get("cost_text", ""),
                 cache_age_text=data.get("cache_age_text", ""),
-                bypass=False, show_five_hour=False,
+                bypass=False, show_five_hour=data["msgs_pct"] is not None,
                 use_color=use_color,
                 warning_threshold=30.0, critical_threshold=70.0,
                 activity=data.get("activity"), activity_opts=act_opts,
@@ -215,7 +218,7 @@ def run(use_color: bool = True, theme_filter: Optional[str] = None,
                 lang_body="",
                 cost_text=data.get("cost_text", ""),
                 cache_age_text=data.get("cache_age_text", ""),
-                bypass=False, show_five_hour=False,
+                bypass=False, show_five_hour=data["msgs_pct"] is not None,
                 use_color=use_color,
                 warning_threshold=30.0, critical_threshold=70.0,
                 activity=data.get("activity"), activity_opts=act_opts,

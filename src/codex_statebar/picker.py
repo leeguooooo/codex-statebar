@@ -52,18 +52,22 @@ def current_look(cfg) -> str:
     return "thin" if cfg.bar_glyph == "thin" else "block"
 
 
-def _preview_lines(use_color: bool, width: Optional[int]) -> list:
+def _preview_lines(use_color: bool, width: Optional[int],
+                   theme_name: str = "graphite") -> list:
     from .preview import _real_data, _demo_data
     from .styles import render
     from .themes import get_theme
     data = _real_data() or _demo_data()
+    theme = get_theme(theme_name)
     lines = []
     for _key, style, glyph, _label, _cmd in LOOKS:
         out = render(
-            style, theme=get_theme("graphite"), bar_glyph=glyph, show_five_hour=False,
+            style, theme=theme, bar_glyph=glyph,
+            show_five_hour=data["msgs_pct"] is not None,
             msgs_pct=data["msgs_pct"], weekly_pct=data["weekly_pct"],
             reset_5h=data["reset_5h"], reset_7d=data["reset_7d"],
-            model=data["model"], cost_text=data.get("cost_text", ""),
+            model=data["model"], ctx_pct=data.get("ctx_pct"),
+            cost_text=data.get("cost_text", ""),
             cache_age_text=data.get("cache_age_text", ""),
             use_color=use_color, max_width=width,
             warning_threshold=30.0, critical_threshold=70.0,
@@ -182,7 +186,7 @@ def run(no_color: bool = False, only_if_new: bool = False) -> int:
         return 0
     color = not no_color and "NO_COLOR" not in os.environ and sys.stdout.isatty()
     width = terminal_width(os.environ)
-    previews = _preview_lines(color, width - 5 if width else None)
+    previews = _preview_lines(color, width - 5 if width else None, cfg.theme)
 
     if not interactive:
         d, r = (DIM, R) if color else ("", "")

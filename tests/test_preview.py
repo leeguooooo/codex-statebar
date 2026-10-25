@@ -190,3 +190,23 @@ def test_native_payload_preview_uses_live_weekly_and_context(tmp_path, monkeypat
     assert rc == 0
     assert '76%' in out and '20%' in out and 'gpt-ui-probe' in out
     assert '5h' not in out.lower() and 'COLD' not in out
+
+
+def test_picker_previews_follow_real_five_hour_context_and_theme(monkeypatch):
+    from codex_statebar import picker
+    data = dict(msgs_pct=14, weekly_pct=13, reset_5h="1h07m", reset_7d="6d13h",
+                model="gpt-6.1(356.2k/828.4k)", ctx_pct=43.0)
+    monkeypatch.setattr(preview, "_real_data", lambda: data)
+    plain = picker._preview_lines(False, None, "nord")
+    assert all("5h" in line and "14%" in line for line in plain)
+    assert "ctx 43%" in plain[2] and "(356.2k" not in plain[2]
+    nord = picker._preview_lines(True, None, "nord")
+    assert nord != picker._preview_lines(True, None, "graphite")
+
+
+def test_themes_listing_aligns_long_names(capsys):
+    from codex_statebar.cli import _run_themes_subcommand
+    _run_themes_subcommand()
+    rows = capsys.readouterr().out.splitlines()[1:]
+    starts = {row.index(row.split()[1], len(row.split()[0]) + 2) for row in rows}
+    assert len(starts) == 1

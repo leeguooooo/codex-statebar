@@ -123,8 +123,10 @@ def _run_config_subcommand(rest):
 def _run_themes_subcommand():
     from .themes import list_themes
     print("Available themes:")
-    for t in list_themes():
-        print(f"  {t.name:<10}  {t.description}")
+    themes = list_themes()
+    width = max(len(t.name) for t in themes)
+    for t in themes:
+        print(f"  {t.name:<{width}}  {t.description}")
     return 0
 
 
