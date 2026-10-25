@@ -34,11 +34,12 @@ class Theme:
     pill_lang: RGB
     pill_cost: RGB   # cost pill bg — separate from pill_lang to avoid collision
     pill_ink: RGB    # text color used on pill backgrounds
+    wt: RGB = (189, 147, 249)
 
 
 BUILTIN_THEMES = [
     Theme(
-        name="graphite",
+        name="graphite", wt=(168, 152, 226),
         description="深冷石墨 — 安静、专业、对深色终端友好",
         ink=(218, 221, 225), mute=(120, 125, 132), edge=(75, 80, 88),
         s_ok=(120, 200, 192), s_warn=(232, 178, 96), s_hot=(232, 116, 116),
@@ -169,6 +170,7 @@ def apply_color_overrides(
     ok: Optional[RGB] = None,
     warn: Optional[RGB] = None,
     hot: Optional[RGB] = None,
+    worktree: Optional[RGB] = None,
 ) -> Theme:
     """Return a Theme with severity colors overridden where provided.
 
@@ -177,6 +179,8 @@ def apply_color_overrides(
     designed them. Pass `None` for any color to leave it untouched.
     """
     overrides: dict = {}
+    if worktree is not None:
+        overrides["wt"] = worktree
     if ok is not None:
         overrides["s_ok"] = ok
     if warn is not None:

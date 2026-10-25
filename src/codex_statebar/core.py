@@ -653,13 +653,6 @@ print("")
     # "--" at the resets_at-absent branch).
     return "--"
 
-# Auto-update is rate-limited to once per machine per day. We use the mtime
-# of `last_update_check` as the timestamp — touching it before the slow
-# urlopen+pip work means N concurrent new sessions only fire ONE check
-# (the first one to win the touch race; the rest see a fresh mtime and skip).
-_UPDATE_CHECK_INTERVAL_S = 24 * 3600
-
-
 _ENSURE_STATUSLINE_INTERVAL_S = 24 * 60 * 60  # once per day
 
 
@@ -678,59 +671,11 @@ def _maybe_ensure_statusline():
 
 
 def check_for_updates(session_id: str = ''):
-    """Check for updates at most once per machine per 24 hours.
-
-    Disabled by setting env CLAUDE_STATUSBAR_NO_UPDATE=1 or
-    passing --no-auto-update on the CLI.
-
-    Concurrency notes
-    -----------------
-    Previously this was gated by session_id, so opening 5 new Claude Code
-    windows simultaneously would fire 5 parallel pip installs. The timestamp
-    gate fixes that: whichever cxs gets to update the timestamp first wins;
-    everyone else sees a fresh marker and bails before running urlopen / pip.
-    """
-    # Disabled until the first codex-statebar GitHub Release exists. Release
-    # binaries will own upgrades; the renderer must never invoke pip/npm.
-    return
-    env_val = os.environ.get('CODEX_STATEBAR_NO_UPDATE', '').lower()
-    if env_val in ('1', 'true', 'yes'):
-        return
-
+    """Schedule a bounded GitHub Release check without blocking rendering."""
     try:
-        cache_dir = Path.home() / '.cache' / 'codex-statebar'
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        marker = cache_dir / 'last_update_check'
-
-        # Skip if last check was within the interval.
-        if marker.exists():
-            try:
-                age = _time_now() - marker.stat().st_mtime
-                if age < _UPDATE_CHECK_INTERVAL_S:
-                    return
-            except OSError:
-                pass
-
-        # Touch the marker BEFORE the slow operation. Two consequences:
-        #   1. A hung urlopen/pip can't trap us in a re-trigger loop on
-        #      next render — the marker is already fresh.
-        #   2. Concurrent sessions that arrive a few ms later see the
-        #      fresh mtime and skip. (Race window is tiny but exists; if
-        #      it matters we'd switch to fcntl.flock.)
-        try:
-            marker.touch()
-        except OSError:
-            return  # if we can't even touch the marker, don't try the upgrade
-
-        # Spawn the check+upgrade in a DETACHED subprocess — never run it
-        # synchronously here. A `uv tool install --upgrade` can take tens of
-        # seconds; doing it inline would freeze this render. The marker is
-        # already touched above, so we won't re-trigger before the interval.
-        from .updater import spawn_background_upgrade_check
-        spawn_background_upgrade_check()
-
+        from .update_check import schedule
+        schedule()
     except Exception:
-        # Silently fail - don't interrupt main functionality
         pass
 
 
@@ -1073,6 +1018,7 @@ def main(json_output: bool = False,
         ok=parse_hex_color(cfg.color_ok) if cfg.color_ok else None,
         warn=parse_hex_color(cfg.color_warn) if cfg.color_warn else None,
         hot=parse_hex_color(cfg.color_hot) if cfg.color_hot else None,
+        worktree=parse_hex_color(cfg.color_worktree) if cfg.color_worktree else None,
     )
 
     # Auto-compact: if terminal narrower than threshold, force hairline
@@ -1260,7 +1206,7 @@ def main(json_output: bool = False,
     # Relay fingerprint-risk warning line (local-only: relay base URL + a
     # marked system timezone). Its own dedicated line, distinct from ip_risk.
     fp_line_kwargs = {}
-    if cfg.show_fp_risk:
+    if cfg.show_fp_risk and not (stdin_data.get("_is_codex") or stdin_data.get("codex_version")):
         try:
             from .fp_risk import fp_risk_line
             fp_text, fp_level = fp_risk_line(_effective_env)
@@ -1272,9 +1218,17 @@ def main(json_output: bool = False,
 
     # Optional session-mode line (⚙): effort / thinking / fast / output-style,
     # straight from stdin. Each field is omitted by the renderer when absent.
-    mode_kwargs = {}
+    from .i18n import ui_lang
+    mode_kwargs = dict(narrow_layout=cfg.narrow_layout, ui_lang=ui_lang(cfg.lang), bar_glyph=cfg.bar_glyph, worktree_glyph=cfg.worktree_glyph,
+                       looks_hint=cfg.looks_seen < _cfg.LOOKS_VERSION)
+    if cfg.show_ocs:
+        from .ocs import ocs_label, ocs_status
+        _sid = str(stdin_data.get("session_id") or "")
+        mode_kwargs["ocs_text"] = ocs_label(_sid)
+        _status = ocs_status(_sid)
+        mode_kwargs.update(ocs_unread=_status["unread"], ocs_lan=_status["lan"])
     if cfg.show_mode:
-        mode_kwargs = dict(
+        mode_kwargs.update(
             mode_show=True,
             mode_effort=stdin_data.get('effort_level', ''),
             mode_thinking=stdin_data.get('thinking_enabled'),

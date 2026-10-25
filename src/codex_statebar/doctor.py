@@ -144,6 +144,17 @@ def run() -> int:
         config = load_config()
         _line("render config", f"{config.style}/{config.theme}/{config.density}")
         _line("config file", CONFIG_PATH)
+        disabled = os.environ.get("CODEX_STATEBAR_NO_UPDATE", "").lower() in ("1", "true", "yes")
+        _line("auto-upgrade", "off (environment)" if disabled else
+              ("on (GitHub Releases, every 6h)" if config.auto_upgrade else "check only"))
+        from .styles import _update_hint
+        latest = _update_hint()
+        if latest:
+            _line("new release", f"{latest} — cxs upgrade")
+        from .config import LOOKS_VERSION
+        _line("new looks", "cxs theme" if config.looks_seen < LOOKS_VERSION else "seen")
+        from .ocs import find_ocs
+        _line("OCS integration", (find_ocs() or "not installed") if config.show_ocs else "off")
     except Exception as exc:
         _line("render config", exc, False)
     print()

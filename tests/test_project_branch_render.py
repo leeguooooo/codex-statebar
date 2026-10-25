@@ -48,15 +48,14 @@ def test_detached_head_uses_short_sha():
 
 
 def test_worktree_suffix():
-    # A worktree shows a bare boolean marker — no redundant name, since the
-    # branch already identifies which worktree it is.
+    # A linked checkout leads with a count, collapsing the redundant name.
     s = render_identity_line(
         IdentityInfo(project_name="proj", in_git=True, branch="feat-x",
                      detached=False, worktree_name="feat-x", toplevel="/x",
                      is_worktree=True),
         theme=THEME, dirty=False, use_color=False,
     )
-    assert "[worktree]" in s
+    assert s.startswith("worktree (🌳0) ")
 
 
 def test_no_worktree_marker_for_normal_checkout():
@@ -66,7 +65,7 @@ def test_no_worktree_marker_for_normal_checkout():
                      is_worktree=False),
         theme=THEME, dirty=False, use_color=False,
     )
-    assert "worktree" not in s.lower()
+    assert s.startswith("worktree (🌳0) ")
 
 
 def test_color_mode_emits_ansi():

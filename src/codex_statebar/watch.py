@@ -38,6 +38,8 @@ def run(argv):
         while True:
             from .maintenance import maintain_cache
             maintain_cache()
+            from .core import check_for_updates
+            check_for_updates()
             started = time.monotonic()
             frame = io.StringIO()
             with redirect_stdout(frame):

@@ -40,7 +40,7 @@ def verify(entrypoint, seconds=60):
                                              'resets_at': int(time.time() + 6 * 86400)}}}},
         ]
         rollout.write_text('\n'.join(map(json.dumps, events)) + '\n')
-        env = {**os.environ, 'HOME': str(home), 'CODEX_HOME': str(codex),
+        env = {**os.environ, 'CODEX_STATEBAR_NO_UPDATE': '1', 'HOME': str(home), 'CODEX_HOME': str(codex),
                'CODEX_STATEBAR_RUNTIME_DIR': str(root / 'runtime'), 'TMPDIR': str(root),
                'PYINSTALLER_RESET_ENVIRONMENT': '1'}
         subprocess.run([entrypoint, '--version'], env=env, check=True, capture_output=True, timeout=30)

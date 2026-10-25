@@ -74,30 +74,68 @@ class IdentityInfo:
     worktree_name: Optional[str]
     toplevel: Optional[str]
     is_worktree: bool = False
+    worktree_count: int = 0
+    web_url: Optional[str] = None
+
+
+def _worktree_details(start: Path):
+    gitdir = _resolve_gitdir(start)
+    if gitdir is None:
+        return None
+    # commondir also covers git repositories whose metadata isn't named .git.
+    try:
+        common = (gitdir / "commondir").read_text(encoding="utf-8").strip()
+        common = (gitdir / common).resolve()
+    except OSError:
+        common = gitdir.parent.parent if gitdir.parent.name == "worktrees" else gitdir
+    linked = common != gitdir
+    return (gitdir.name if linked else None, common.parent.name,
+            common / "worktrees", linked)
+
+
+_WORKTREE_COUNTS = {}
+
+
+def count_live_worktrees(registry: Path) -> int:
+    import time
+    now = time.monotonic()
+    try:
+        st = registry.stat()
+    except OSError:
+        return 0
+    key = str(registry)
+    signature = (st.st_ino, st.st_mtime_ns)
+    old = _WORKTREE_COUNTS.get(key)
+    if old and old[0] == signature and now - old[1] < 30:
+        return old[2]
+    count = 0
+    try:
+        for entry in registry.iterdir():
+            try:
+                raw = (entry / "gitdir").read_text(encoding="utf-8").strip()
+                if raw and Path(raw).exists():
+                    count += 1
+            except OSError:
+                continue
+    except OSError:
+        return 0
+    if len(_WORKTREE_COUNTS) >= 128:
+        _WORKTREE_COUNTS.clear()
+    _WORKTREE_COUNTS[key] = (signature, now, count)
+    return count
 
 
 def _detect_worktree(start: Path) -> bool:
-    """True when `start` sits inside a *linked* git worktree.
+    details = _worktree_details(start)
+    return bool(details and details[3])
 
-    A linked worktree's `.git` is a FILE whose `gitdir:` points under the
-    main repo's `.git/worktrees/<name>/`. A submodule's `.git` file points
-    under `.git/modules/<name>/` instead — so the `worktrees` segment is
-    what distinguishes a worktree from both a normal checkout (`.git` is a
-    directory) and a submodule. Local + reliable; no dependency on Claude
-    Code passing `workspace_git_worktree`.
-    """
-    cur = start.resolve() if start.exists() else start
-    for candidate in [cur, *cur.parents]:
-        dotgit = candidate / ".git"
-        if dotgit.is_dir():
-            return False
-        if dotgit.is_file():
-            try:
-                text = dotgit.read_text(encoding="utf-8").strip()
-            except OSError:
-                return False
-            return "worktrees/" in text or "worktrees\\" in text
-    return False
+
+def strip_repo_prefix(name: str, anchor: str) -> str:
+    for separator in ("-", "_", "."):
+        prefix = anchor + separator
+        if name.startswith(prefix) and len(name) > len(prefix):
+            return name[len(prefix):]
+    return name
 
 
 def _resolve_toplevel(start: Path) -> Optional[Path]:
@@ -114,6 +152,70 @@ def _resolve_toplevel(start: Path) -> Optional[Path]:
         if dotgit.exists():
             return candidate
     return None
+
+
+_REMOTE_CACHE: dict = {}
+
+
+def remote_web_url(remote: str) -> Optional[str]:
+    """`git@host:o/r.git`, `ssh://git@host:22/o/r`, `https://user:tok@host/o/r.git`
+    → `https://host/o/r`. Credentials never survive; anything else → None."""
+    import re
+    remote = remote.strip()
+    m = (re.fullmatch(r"[\w.-]+@([\w.-]+):(?!\d+/)([\w./-]+?)(?:\.git)?/?", remote)
+         or re.fullmatch(r"(?:ssh|git\+ssh|https?)://(?:[^@/]*@)?([\w.-]+)(?::\d+)?/([\w./-]+?)(?:\.git)?/?",
+                         remote))
+    if not m or ".." in m.group(2):
+        return None
+    return f"https://{m.group(1)}/{m.group(2)}"
+
+
+def branch_web_url(repo_url: Optional[str], branch: Optional[str]) -> Optional[str]:
+    """Branch page on the forge: GitLab `/-/tree/`, Bitbucket `/src/`, else `/tree/`."""
+    if not repo_url or not branch:
+        return None
+    from urllib.parse import quote
+    host = repo_url.split("/")[2]
+    path = "/-/tree/" if "gitlab" in host else "/src/" if "bitbucket" in host else "/tree/"
+    return repo_url + path + quote(branch, safe="/")
+
+
+def _read_web_url(start: Path) -> Optional[str]:
+    """origin's URL (else the first remote's) from the repo's own config file —
+    no git subprocess; memoized on the config's mtime."""
+    gitdir = _resolve_gitdir(start)
+    if gitdir is None:
+        return None
+    common = gitdir
+    try:
+        rel = (gitdir / "commondir").read_text(encoding="utf-8").strip()
+        common = (gitdir / rel).resolve()
+    except OSError:
+        pass
+    cfg = common / "config"
+    try:
+        sig = (str(cfg), cfg.stat().st_mtime_ns)
+    except OSError:
+        return None
+    if sig in _REMOTE_CACHE:
+        return _REMOTE_CACHE[sig]
+    import configparser
+    parser = configparser.ConfigParser(strict=False, interpolation=None)
+    url = None
+    try:
+        parser.read(cfg, encoding="utf-8")
+        sections = [s for s in parser.sections() if s.startswith('remote "')]
+        sections.sort(key=lambda s: s != 'remote "origin"')
+        for s in sections:
+            raw = parser.get(s, "url", fallback=None)
+            url = remote_web_url(raw) if raw else None
+            if url:
+                break
+    except (configparser.Error, OSError, UnicodeDecodeError):
+        url = None
+    _REMOTE_CACHE.clear()
+    _REMOTE_CACHE[sig] = url
+    return url
 
 
 def resolve_identity(stdin: dict) -> IdentityInfo:
@@ -136,9 +238,17 @@ def resolve_identity(stdin: dict) -> IdentityInfo:
     toplevel = _resolve_toplevel(start) if head else None
     # Trust the local filesystem first (works even when CC omits the field),
     # fall back to the stdin hint for the rare case the cwd isn't on disk.
-    is_worktree = (_detect_worktree(start) if head else False) or bool(worktree_name)
-
+    details = _worktree_details(start) if head else None
+    is_worktree = bool(details and details[3]) or bool(worktree_name)
+    if details:
+        local_name, anchor, registry, linked = details
+        if linked:
+            worktree_name = worktree_name or local_name
+            if not repo_name:
+                project_name = anchor
     return IdentityInfo(
+        worktree_count=count_live_worktrees(details[2]) if details else 0,
+        web_url=_read_web_url(start) if head else None,
         project_name=project_name,
         in_git=head is not None,
         branch=head[0] if head else None,

@@ -72,7 +72,7 @@ def maintain_cache(root=None, *, now=None, force=False):
                 # In-place truncation also bounds an already open launchd fd.
                 with path.open('r+b') as handle:
                     handle.truncate(0)
-        for name in ('git', 'balance'):
+        for name in ('git', 'balance', 'ocs'):
             directory = root / name
             if directory.is_symlink():
                 continue

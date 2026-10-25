@@ -11,6 +11,9 @@ Use `cxs` for Codex CLI status-bar requests. Prefer commands over editing
 | Intent | Command |
 |---|---|
 | Render current session | `cxs` |
+| Pick a look interactively | `cxs theme` |
+| Check for a release | `cxs upgrade --check` |
+| Upgrade installed binaries | `cxs upgrade` |
 | Live dashboard | `cxs watch --style aurora` |
 | Pin a dashboard to a thread | `cxs watch --session <thread-id>` |
 | Diagnose | `cxs doctor` |
@@ -33,3 +36,5 @@ and whether its rich command hook is available.
 external argv is passed only to the selected patched process, so a newer
 official CLI can still start normally. `cxs watch` is optional for standalone
 use. Do not claim embedding works when doctor selects an unpatched CLI.
+
+The bar checks GitHub Releases in the background every six hours. `auto_upgrade=false` keeps checks but disables installation; `CODEX_STATEBAR_NO_UPDATE=1` disables checks. `show_ocs` controls exact-thread OCS address/unread/LAN display. Worktree counts exclude deleted checkouts. New-look notices are acknowledged by `cxs theme`; never edit config during rendering.

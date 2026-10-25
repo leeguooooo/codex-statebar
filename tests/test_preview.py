@@ -171,7 +171,8 @@ def test_preview_classic_varies_by_theme(capsys, monkeypatch):
     assert out_g != out_l
 
 
-def test_preview_hides_five_hour_in_header_and_all_styles():
+def test_preview_hides_five_hour_in_header_and_all_styles(monkeypatch):
+    monkeypatch.setattr(preview, "_real_data", lambda: None)
     rc, out = _run()
     assert rc == 0
     assert '5h' not in out.lower()

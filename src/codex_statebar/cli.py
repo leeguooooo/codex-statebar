@@ -15,7 +15,7 @@ import argparse
 VERSION_FLAGS = ("--version", "-V", "-v", "-version")
 SUBCOMMANDS = (
     "config",
-    "themes",
+    "themes", "theme", "look", "looks",
     "styles",
     "preview",
     "install-commands",
@@ -38,6 +38,8 @@ def _run_config_subcommand(rest):
 
     if action == "show":
         cfg = cfg_mod.load_config()
+        for key in ("lang", "narrow_layout", "bar_glyph", "looks_seen", "show_ocs", "auto_upgrade", "worktree_glyph", "color_worktree"):
+            print(f"{key:20}= {getattr(cfg, key)}")
         print(f"style               = {cfg.style}")
         print(f"theme               = {cfg.theme}")
         print(f"density             = {cfg.density}")
@@ -208,6 +210,12 @@ def main():
         # Frozen helpers are launched through the persistent entrypoint, which
         # leases their runtime and resets PyInstaller state across upgrades.
         module = sys.argv[2]
+        if module == "codex_statebar.ocs":
+            from . import ocs
+            return ocs.main(sys.argv[2:])
+        if module == "codex_statebar.update_check":
+            from . import update_check
+            return update_check.main()
         if module == "codex_statebar._git_refresh":
             from . import _git_refresh
             return _git_refresh.main(sys.argv[2:])
@@ -244,9 +252,24 @@ def main():
         if sub == "daemon":
             return _run_daemon_subcommand(rest)
         if sub == "upgrade":
+            if rest == ["--check"]:
+                from .update_check import run
+                try:
+                    ok, message = run(check_only=True)
+                    print(message)
+                    return 0 if ok else 1
+                except Exception as exc:
+                    print(f"Update check failed: {exc}", file=sys.stderr)
+                    return 1
+            if rest:
+                print("usage: cxs upgrade [--check]", file=sys.stderr)
+                return 2
             return _run_upgrade_subcommand()
         if sub == "config":
             return _run_config_subcommand(rest)
+        if sub in ("theme", "look", "looks"):
+            from .picker import run
+            return run(no_color="--no-color" in rest, only_if_new="--if-new" in rest)
         if sub == "themes":
             return _run_themes_subcommand()
         if sub == "styles":

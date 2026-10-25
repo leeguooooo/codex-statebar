@@ -51,9 +51,9 @@ def _version_gt(a: str, b: str) -> bool:
 
 
 def _update_hint(path=None) -> str:
-    """The newer version string if the cached PyPI check says one is available
+    """The newer version string if the cached GitHub Release check says one is available
     (and the check is recent), else ''. Cheap file read — no network, no
-    importlib on the hot path. Written by updater.get_latest_version."""
+    importlib on the hot path. Written by update_check."""
     try:
         import json as _json
         import time as _t
@@ -63,7 +63,7 @@ def _update_hint(path=None) -> str:
         data = _json.loads(p.read_text(encoding="utf-8"))
         latest = str(data.get("version", ""))
         checked_at = float(data.get("checked_at", 0))
-        if not latest or _t.time() - checked_at > 7 * 86400:  # stale → no arrow
+        if not latest or not 0 <= _t.time() - checked_at <= 7 * 86400:  # stale → no arrow
             return ""
         return latest if _version_gt(latest, _statusbar_version()) else ""
     except Exception:
@@ -580,11 +580,23 @@ def _stats_segment(duration_text: str, lines_text: str, *, theme: Theme,
     return f" {MUTE}·{RESET} " + sep.join(segs)
 
 
+def _worktree_marker(info, glyph):
+    count = getattr(info, "worktree_count", 0)
+    if info.is_worktree:
+        from .identity import strip_repo_prefix
+        name = strip_repo_prefix(info.worktree_name or "worktree", info.project_name)
+        if name == info.branch:
+            name = "worktree"
+        return f"{name} ({glyph}{count})"
+    return f"worktree ({glyph}{count})" if info.in_git else ""
+
+
 def render_identity_line(info, *, theme: Theme, dirty,
                          ahead=None, behind=None,
                          duration_text: str = "", lines_text: str = "",
                          version_text: str = "", update_text: str = "",
                          cwd_text: str = "",
+                         worktree_glyph: str = "🌳",
                          use_color: bool = True) -> str:
     """Render the 2nd line: `⤷ <project> ⎇ <branch>●↑2↓1 · ⏱ <dur> · +/-lines`.
 
@@ -594,9 +606,8 @@ def render_identity_line(info, *, theme: Theme, dirty,
     arrows render only for nonzero directions and only inside a git repo.
     `duration_text`/`lines_text` are the session stats, shown here (next to the
     project) rather than on the live-activity line. When the checkout is a
-    linked git worktree (`info.is_worktree`), a bare ``[worktree]`` marker is
-    appended after the branch — a boolean signal only; the branch already
-    says which worktree it is, so the name isn't repeated.
+    linked git worktree (`info.is_worktree`), its name and live checkout count
+    lead the identity line. The main checkout also shows the sibling count.
 
     `cwd_text` (show_cwd, #30) is the session's working directory; it's
     appended after the branch only when it adds information — skipped when it
@@ -616,8 +627,9 @@ def render_identity_line(info, *, theme: Theme, dirty,
             tail = f" ⎇ {branch}{dot}"
             if ab:
                 tail += f" {ab}"
-        if info.is_worktree:
-            tail += " [worktree]"
+        marker = _worktree_marker(info, worktree_glyph)
+        if marker:
+            head = marker + " " + head
         if cwd_text and cwd_text != info.project_name:
             tail += f" · {cwd_text}"
         ver = f" · v{version_text}" if version_text else ""
@@ -632,7 +644,10 @@ def render_identity_line(info, *, theme: Theme, dirty,
 
     # Project name in full ink — it's the line's identity anchor (user
     # feedback 2026-07-02: mute made it near-invisible). The ⤷ stays mute.
-    head = f"{MUTE}⤷ {RESET}{INK}{info.project_name}{RESET}"
+    from ._display import hyperlink
+    from .identity import branch_web_url
+    project = hyperlink(info.project_name, getattr(info, "web_url", None))
+    head = f"{MUTE}⤷ {RESET}{INK}{project}{RESET}"
     if not info.in_git:
         body = f" {MUTE}{ITAL}(no git){RESET}"
     else:
@@ -640,14 +655,17 @@ def render_identity_line(info, *, theme: Theme, dirty,
         if info.detached:
             branch_styled = f"{MUTE}{ITAL}{branch}{RESET}"
         else:
-            branch_styled = f"{INK}{branch}{RESET}"
+            branch_link = hyperlink(branch, branch_web_url(getattr(info, "web_url", None), branch))
+            branch_styled = f"{INK}{branch_link}{RESET}"
         dot = f"{HOT}●{RESET}" if dirty else ""
         body = f" {EDGE}⎇{RESET} {branch_styled}{dot}"
         if ab:
             # Soft accent (not bare mute) — a gentle "unpushed/behind work" nudge.
             body += f" {_fg(theme.s_ok)}{ab}{RESET}"
-    if info.is_worktree:
-        body += f" {MUTE}[worktree]{RESET}"
+    marker = _worktree_marker(info, worktree_glyph)
+    if marker:
+        color = _fg(theme.wt) if info.is_worktree else MUTE
+        head = f"{color}{marker}{RESET} " + head
     if cwd_text and cwd_text != info.project_name:
         body += f" {MUTE}·{RESET} {INK}{cwd_text}{RESET}"
     # Version: the faintest thing on the line — edge (darkest grey) + dim
@@ -981,6 +999,13 @@ def render(style: str, **kwargs) -> str:
     bottom line per running subagent. All extra lines are style-agnostic.
     """
     max_width = kwargs.pop("max_width", None)
+    narrow_layout = kwargs.pop("narrow_layout", "stack")
+    ui_lang = kwargs.pop("ui_lang", "en")
+    ocs_text = kwargs.pop("ocs_text", "")
+    ocs_unread = kwargs.pop("ocs_unread", None)
+    ocs_lan = kwargs.pop("ocs_lan", None)
+    looks_hint = kwargs.pop("looks_hint", False)
+    worktree_glyph = kwargs.pop("worktree_glyph", "🌳")
     show_pb = kwargs.pop("show_project_branch", False)
     info = kwargs.pop("identity", None)
     dirty = kwargs.pop("identity_dirty", None)
@@ -1014,6 +1039,10 @@ def render(style: str, **kwargs) -> str:
     if max_width is not None and max_width > 0 and visible_width(out) > max_width:
         # Pack whole segments; only an individually oversized segment is clipped.
         sep = " | " if fn is render_classic else " │ "
+        if narrow_layout == "drop":
+            while len(parts) > 1 and visible_width(sep.join(parts)) > max_width:
+                parts.pop()
+            out = sep.join(parts) if parts else out
         rows, row = [], ""
         for part in parts or [out]:
             if row and visible_width(row + sep + part) > max_width:
@@ -1032,7 +1061,7 @@ def render(style: str, **kwargs) -> str:
             info, theme=theme, dirty=dirty, ahead=ahead, behind=behind,
             duration_text=duration_text, lines_text=lines_text,
             version_text=version_text, update_text=update_text,
-            cwd_text=cwd_text,
+            cwd_text=cwd_text, worktree_glyph=worktree_glyph,
             use_color=use_color,
         )
     elif cwd_text:
@@ -1044,6 +1073,20 @@ def render(style: str, **kwargs) -> str:
         else:
             out = out + "\n" + f"⤷ {cwd_text}"
 
+    if looks_hint:
+        from .picker import hint_text
+        out += "\n" + hint_text(ui_lang)
+    if ocs_text:
+        line = f"ocs {ocs_text}"
+        if ocs_unread:
+            line += f" · ✉{ocs_unread}"
+        if ocs_lan:
+            peers = ocs_lan.get("peers") or []
+            labels = "  ".join(("● " if recent else "○ ") + label for label, recent in peers)
+            if ocs_lan.get("more"):
+                labels += f" +{ocs_lan['more']}"
+            line += " · lan " + (labels or ("on" if ocs_lan.get("running") else "off"))
+        out += "\n" + (f"{_fg(theme.ink)}{line}{RESET}" if use_color else line)
     party_line = render_party_line(party, theme=theme, use_color=use_color)
     if party_line:
         out = out + "\n" + party_line

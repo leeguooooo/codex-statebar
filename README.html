@@ -87,8 +87,16 @@ cxs doctor</pre>
   </section>
 
   <section>
+    <h2>新外观、worktree、OCS 和更新</h2>
+    <p>状态栏遇到新外观集合时提示 <code>New looks · cxs theme</code>。运行 <code>cxs theme</code>，用方向键和回车选择 Aurora 方块、Aurora 细线或 Classic，取消保留原样式；查看后提示消失。可用 <code>lang zh</code> 或 <code>lang en</code> 设置提示语言，默认跟随系统。也可直接设置 <code>bar_glyph thin</code>。窄终端可选 <code>narrow_layout stack</code> 换行保留字段，或 <code>narrow_layout drop</code> 隐藏末尾字段。<code>cxs themes</code> 仍列出配色。</p>
+    <p>worktree 行显示 checkout 名称、主仓库与有效数量，排除已删除 checkout 的残留记录。主 checkout 同样显示数量。可用 <code>cxs config set worktree_glyph ⑂</code> 和 <code>cxs config set color_worktree &quot;#bd93f9&quot;</code> 调整。</p>
+    <p>已安装 OCS 时，独立一行显示当前 Codex 会话的地址、未读消息与 LAN 状态。查询只使用 <code>ocs whoami --json</code>、<code>ocs inbox --json</code> 与 <code>ocs lan status --json</code>，按完整 thread ID 校验，30 秒缓存；未安装或不认识当前会话时隐藏，不会借用其他会话的身份。</p>
+    <p>每 6 小时在后台检查 GitHub Release，发现新版后校验 SHA-256 并升级。<code>cxs config set auto_upgrade false</code> 关闭自动安装，保留版本检查和提示；<code>CODEX_STATEBAR_NO_UPDATE=1</code> 关闭检查。也可运行 <code>cxs upgrade --check</code> 或 <code>cxs upgrade</code>。当前已打开的 Codex 前端需重启才会使用新的原生程序。</p>
+  </section>
+
+  <section>
     <h2>资源保留规则</h2>
-    <p>watch 和 daemon 每 30 分钟清理一次可重建缓存；可用 <code>cxs gc</code> 立即执行。闲置 session 缓存保留 24 小时，闲置目录最多 256 个；Git 和余额缓存保留 30 天，各最多 1024 个文件。最近 1 小时有写入的状态暂不淘汰，运行中的窗口可以重新建立缓存。</p>
+    <p>watch 和 daemon 每 30 分钟清理一次可重建缓存；可用 <code>cxs gc</code> 立即执行。闲置 session 缓存保留 24 小时，闲置目录最多 256 个；Git、余额和 OCS 缓存保留 30 天，各最多 1024 个文件。最近 1 小时有写入的状态暂不淘汰，运行中的窗口可以重新建立缓存。</p>
     <p>daemon 日志每份上限 1 MiB，只保留一份轮转文件。新生成的系统服务不另外追加 stdout/stderr 文件。维护只处理 cxs 自己的缓存，不进入 Codex 的 sessions、archived_sessions 或配置文件，也不跟随缓存内的符号链接。</p>
   </section>
 
@@ -104,8 +112,7 @@ cxs doctor</pre>
 python -m pytest -q
 python -m compileall -q src
 cxs --no-color
-patch --dry-run -d /path/to/codex -p1 &lt; patches/codex-0.145.0-external-status-line.patch
-patch --dry-run -d /path/to/codex -p1 &lt; patches/codex-0.145.0-multiline-status-line.patch
+patch --dry-run -d /path/to/codex -p1 &lt; patches/codex-0.164.0-external-status-line.patch
 cargo check -p codex-tui</pre>
   </section>
 </main></body>

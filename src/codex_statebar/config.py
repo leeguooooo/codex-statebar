@@ -19,6 +19,8 @@ CLAUDE_CONFIG_PATH = Path(
     os.environ.get("CLAUDE_CONFIG_DIR", Path.home() / ".claude")
 ) / "claude-statusbar.json"
 
+LOOKS_VERSION = 1
+
 DEFAULT_STYLE = "classic"     # keep existing behavior for upgraders
 DEFAULT_THEME = "graphite"
 DEFAULT_DENSITY = "regular"   # cozy | regular | compact
@@ -39,6 +41,14 @@ class StatusbarConfig:
     style: str = DEFAULT_STYLE
     theme: str = DEFAULT_THEME
     density: str = DEFAULT_DENSITY
+    lang: str = "auto"
+    narrow_layout: str = "stack"
+    bar_glyph: str = "block"
+    looks_seen: int = 0
+    show_ocs: bool = True
+    auto_upgrade: bool = True
+    worktree_glyph: str = "🌳"
+    color_worktree: Optional[str] = None
     auto_compact_width: int = DEFAULT_AUTO_COMPACT_WIDTH
     show_weekly: bool = True
     show_language: bool = True
@@ -140,6 +150,14 @@ def load_config(path: Optional[Path] = None) -> StatusbarConfig:
     if not isinstance(raw, dict):
         return StatusbarConfig()
     return StatusbarConfig(
+        lang=str(raw.get("lang", "auto")),
+        narrow_layout=str(raw.get("narrow_layout", "stack")),
+        bar_glyph=str(raw.get("bar_glyph", "block")),
+        looks_seen=int(raw.get("looks_seen", 0) or 0),
+        show_ocs=_to_bool(raw.get("show_ocs", True)),
+        auto_upgrade=_to_bool(raw.get("auto_upgrade", True)),
+        worktree_glyph=str(raw.get("worktree_glyph", "🌳")),
+        color_worktree=raw.get("color_worktree") or None,
         style=str(raw.get("style", DEFAULT_STYLE)),
         theme=str(raw.get("theme", DEFAULT_THEME)),
         density=str(raw.get("density", DEFAULT_DENSITY)),
@@ -187,6 +205,8 @@ def save_config(cfg: StatusbarConfig, path: Optional[Path] = None) -> None:
 
 
 VALID_KEYS = {
+    "lang", "narrow_layout",
+    "bar_glyph", "looks_seen", "show_ocs", "auto_upgrade", "worktree_glyph", "color_worktree",
     "style", "theme", "density", "auto_compact_width",
     "show_weekly", "show_language", "show_cost", "show_balance", "balance_bar",
     "show_cache_age",
@@ -202,7 +222,7 @@ VALID_KEYS = {
     "color_ok", "color_warn", "color_hot",
 }
 _VALID_API_MODE = {"auto", "on", "off"}
-_BOOL_KEYS = {"show_weekly", "show_language", "show_cost", "show_balance",
+_BOOL_KEYS = {"show_ocs", "auto_upgrade", "show_weekly", "show_language", "show_cost", "show_balance",
               "balance_bar",
               "show_cache_age",
               "show_project_branch", "show_party",
@@ -213,8 +233,8 @@ _BOOL_KEYS = {"show_weekly", "show_language", "show_cost", "show_balance",
               "bar_shimmer", "show_forecast", "show_projection",
               "show_mode", "mode_gradient"}
 _FLOAT_KEYS = {"warning_threshold", "critical_threshold"}
-_INT_KEYS = {"auto_compact_width", "cache_ttl_seconds"}
-_COLOR_KEYS = {"color_ok", "color_warn", "color_hot"}
+_INT_KEYS = {"looks_seen", "auto_compact_width", "cache_ttl_seconds"}
+_COLOR_KEYS = {"color_worktree", "color_ok", "color_warn", "color_hot"}
 _VALID_DENSITY = {"compact", "regular", "cozy"}
 _VALID_CWD_STYLE = {"basename", "full"}
 
@@ -284,6 +304,20 @@ def set_value(key: str, value: str, path: Optional[Path] = None) -> StatusbarCon
         if value not in _VALID_CWD_STYLE:
             raise ValueError(f"cwd_style must be one of {sorted(_VALID_CWD_STYLE)}, got {value!r}")
         setattr(cfg, key, value)
+    elif key in ("lang", "narrow_layout"):
+        valid = {"auto", "zh", "en"} if key == "lang" else {"stack", "drop"}
+        if value not in valid:
+            raise ValueError(f"{key} must be one of {sorted(valid)}")
+        setattr(cfg, key, value)
+    elif key == "bar_glyph":
+        if value not in {"block", "thin"}:
+            raise ValueError("bar_glyph must be block or thin")
+        cfg.bar_glyph = value
+        cfg.looks_seen = max(cfg.looks_seen, LOOKS_VERSION)
+    elif key == "worktree_glyph":
+        if not value or len(value) > 8 or not value.isprintable():
+            raise ValueError("worktree_glyph must be 1-8 printable characters")
+        cfg.worktree_glyph = value
     elif key == "style":
         # Lazy import to avoid a config↔styles cycle at module load.
         from .styles import list_styles
@@ -291,6 +325,7 @@ def set_value(key: str, value: str, path: Optional[Path] = None) -> StatusbarCon
         if value not in valid:
             raise ValueError(f"style must be one of {sorted(valid)}, got {value!r}")
         setattr(cfg, key, value)
+        cfg.looks_seen = max(cfg.looks_seen, LOOKS_VERSION)
     elif key == "theme":
         from .themes import list_themes
         valid = {t.name for t in list_themes()}

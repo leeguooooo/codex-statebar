@@ -3,8 +3,8 @@
 为 Codex CLI 显示配额、上下文、模型、推理强度、Git 状态、活动和用量预测。
 
 ```text
-5h[░░░--%░░░░]⏰-- | 7d[█░░░7%░░░░]⏰6d21h →91% | gpt-5.6(178.7k/353.4k)
-⤷ codex-statebar ⎇ main●
+7d[█░░░7%░░░░]⏰6d21h →91% | gpt-5.6(178.7k/353.4k)
+worktree (🌳2) ⤷ codex-statebar ⎇ main●
 ⚙ effort:high
 ```
 
@@ -37,6 +37,8 @@ macOS / Linux 版首次启动时将运行时展开到 `~/.local/lib/codex-stateb
 | 显示当前状态 | `cxs` |
 | 实时独立面板 | `cxs watch` |
 | 诊断数据与接入 | `cxs doctor` |
+| 挑选新外观（实时预览） | `cxs theme` |
+| 检查更新 | `cxs upgrade --check` |
 | 预览主题和样式 | `cxs preview` |
 | 切换主题 | `cxs config set theme nord` |
 | 切换样式 | `cxs config set style capsule` |
@@ -50,45 +52,15 @@ macOS / Linux 版首次启动时将运行时展开到 `~/.local/lib/codex-stateb
 
 ## 嵌入 Codex TUI
 
-Codex 0.145.0 稳定版还不能执行外部状态栏命令。本项目包含一个 Rust TUI 补丁，把 `cxs render` 的 ANSI 输出显示在输入框下方；Python 负责主题和指标计算。
+安装器会自动配置，重新打开终端运行 `codex` 即可。当前补丁基于 Codex 0.164.0，Aurora 等多行样式显示在输入框下方。config.toml 保留原生字段作为后备；富状态栏命令只传给选中的补丁版进程。若官方版比补丁版更新，启动器优先官方版。
 
-一键安装会安装预构建的补丁版。需要从源码构建时：
+## 新外观、worktree 与 OCS
 
-```bash
-./scripts/build-patched-codex.sh
-cxs --setup
-./dist/codex-cxs
-```
+- 首次遇到新的外观集合，状态栏显示 `New looks · cxs theme`。运行 `cxs theme` 用方向键选择 Aurora 方块、Aurora 细线或 Classic；取消保留原来的样式。`cxs themes` 仍列出配色。
+- worktree 显示名称、主仓库名与有效 checkout 数量，已删除 checkout 的残留记录不计入。主 checkout 也显示数量，便于分辨正在修改哪棵树。可配置 `worktree_glyph` 与 `color_worktree`。
+- 已安装 OCS 时独立显示当前 Codex 会话地址、未读消息和 LAN 状态。按完整 thread ID 校验，避免显示同目录的另一会话；状态只通过只读 OCS CLI 查询，约 30 秒更新一次。
+- 每 6 小时后台检查 GitHub Release，发现新版时自动校验并升级。`cxs config set auto_upgrade false` 保留检查及新版提示，关闭自动安装；`CODEX_STATEBAR_NO_UPDATE=1` 关闭检查。手动运行 `cxs upgrade --check` 或 `cxs upgrade`。
 
-`cxs --setup` 写入以下配置：
+Codex 不提供的五小时额度、Claude prompt-cache TTL 和按 Claude 模型划分的额度不会伪造显示。Git、活动、任务、推理强度、主题、预测、独立终端面板和诊断保留。
 
-```toml
-[tui]
-status_line = ["command", "…/cxs", "render"]
-```
-
-只有首项为 `command` 时，Codex 才会调用外部渲染器。补丁包含异步执行、更新合并、超时保护、会话隔离和 ANSI 色彩解析。它最多读取三行输出，并按实际行数调整底部状态区高度。
-
-上游扩展点仍在讨论：[openai/codex#17827](https://github.com/openai/codex/issues/17827)。构建脚本固定使用 `rust-v0.145.0`，避免补丁套到不兼容版本。
-
-新建 Codex CLI 后，先发送一条消息，让 Codex 创建 rollout。若还没有 rollout，`cxs` 会提示完成首轮交互，不会改用同目录的 Desktop 会话。
-
-## 上下文和缓存
-
-上下文用量取最近一次 `token_count` 的 `total_tokens / model_context_window`。`cached_input_tokens` 能减少计费，但仍占用模型上下文，因此计入已用 token；计算 billable input 时才从 input tokens 中扣除。
-
-`cache 3m24s` 表示 Claude prompt cache 的剩余 TTL。`cxs` 根据最近 assistant turn 的时间戳识别 5 分钟或 1 小时写入桶。Codex rollout 只提供 cached token 数量，不提供缓存创建时间或 TTL，因此 Codex 状态不会显示虚构的 `cache COLD` 或倒计时。
-
-## 开发验证
-
-```bash
-python -m pip install -e . pytest
-python -m pytest -q
-python -m compileall -q src
-cxs --no-color
-patch --dry-run -d /path/to/codex -p1 < patches/codex-0.145.0-external-status-line.patch
-patch --dry-run -d /path/to/codex -p1 < patches/codex-0.145.0-multiline-status-line.patch
-cargo check -p codex-tui
-```
-
-完整的离线网页版本见 [README.html](../README.html)。
+完整安装说明与资源保留规则见 [README.html](../README.html)。

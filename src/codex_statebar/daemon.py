@@ -651,7 +651,7 @@ def run_forever(render_interval: float = DEFAULT_RENDER_INTERVAL) -> int:
                 maintain_cache()
                 # The daemon is the long-lived process, so it owns the periodic
                 # auto-update check (the per-render path suppresses side effects
-                # in daemon mode). check_for_updates is 24h-throttled and only
+                # in daemon mode). check_for_updates is 6h-throttled and only
                 # SPAWNS a detached upgrade, so this never blocks the loop.
                 try:
                     from .core import check_for_updates
