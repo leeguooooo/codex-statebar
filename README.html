@@ -91,7 +91,7 @@ cxs doctor</pre>
     <p>状态栏遇到新外观集合时提示 <code>New looks · cxs theme</code>。运行 <code>cxs theme</code>，用方向键和回车选择 Aurora 方块、Aurora 细线或 Classic，取消保留原样式；查看后提示消失。可用 <code>lang zh</code> 或 <code>lang en</code> 设置提示语言，默认跟随系统。也可直接设置 <code>bar_glyph thin</code>。窄终端可选 <code>narrow_layout stack</code> 换行保留字段，或 <code>narrow_layout drop</code> 隐藏末尾字段。<code>cxs themes</code> 仍列出配色。</p>
     <p>worktree 行显示 checkout 名称、主仓库与有效数量，排除已删除 checkout 的残留记录。主 checkout 同样显示数量。可用 <code>cxs config set worktree_glyph ⑂</code> 和 <code>cxs config set color_worktree &quot;#bd93f9&quot;</code> 调整。</p>
     <p>已安装 OCS 时，独立一行显示当前 Codex 会话的地址、未读消息与 LAN 状态。查询只使用 <code>ocs whoami --json</code>、<code>ocs inbox --json</code> 与 <code>ocs lan status --json</code>，按完整 thread ID 校验，30 秒缓存；未安装或不认识当前会话时隐藏，不会借用其他会话的身份。</p>
-    <p>每 6 小时在后台检查 GitHub Release，发现新版后校验 SHA-256 并升级。<code>cxs config set auto_upgrade false</code> 关闭自动安装，保留版本检查和提示；<code>CODEX_STATEBAR_NO_UPDATE=1</code> 关闭检查。也可运行 <code>cxs upgrade --check</code> 或 <code>cxs upgrade</code>。当前已打开的 Codex 前端需重启才会使用新的原生程序。</p>
+    <p>每 6 小时在后台检查 GitHub Release，发现新版后校验 SHA-256 并升级。<code>cxs config set auto_upgrade false</code> 关闭自动安装，保留版本检查和提示；<code>CODEX_STATEBAR_NO_UPDATE=1</code> 关闭检查。也可运行 <code>cxs upgrade --check</code> 或 <code>cxs upgrade</code>。若新版同时更换原生 Codex 版本，后台只提示更新；退出 Codex 后运行 <code>cxs upgrade</code>，避免替换正在使用的执行组件。Windows 运行中的 EXE 被系统锁定，因此只提示重新安装。</p>
   </section>
 
   <section>

@@ -78,7 +78,27 @@ def run(*, check_only=False):
         'version': latest, 'checked_at': time.time()}))
     newer = updater._version_tuple(latest) > updater._version_tuple(__version__)
     if newer and not check_only and load_config().auto_upgrade:
-        ok, message = updater.upgrade_current_install()
+        # Existing Codex frontends resolve their tool host from this same
+        # directory. A different native version cannot be swapped underneath
+        # a running session safely. Keep the hint for an explicit upgrade.
+        manifest_url = updater._asset_url(release, 'codex-cxs-manifest.json')
+        native_changed = False
+        if manifest_url and os.name != 'nt':
+            manifest = json.loads(updater._fetch(manifest_url))
+            version = str(manifest.get('codex_version') or '')
+            if version:
+                from .codex_launcher import inspect_install
+                installed = inspect_install().patched
+                native_changed = (installed is not None and
+                                  installed.version[:3] != updater._version_tuple(version)[:3])
+        if native_changed:
+            ok = True
+            message = f'cxs {latest} available; native Codex changes — exit Codex, then run: cxs upgrade'
+        elif os.name == 'nt':
+            ok = True
+            message = f'cxs {latest} available; reinstall after closing cxs.exe (Windows locks running executables).'
+        else:
+            ok, message = updater.upgrade_current_install()
     else:
         ok = True
         message = f'cxs {latest} available; run: cxs upgrade' if newer else f'cxs {__version__} is current.'
@@ -98,7 +118,14 @@ def main():
     try:
         run()
         return 0
-    except Exception:
+    except Exception as exc:
+        try:
+            from .cache import atomic_write_text
+            atomic_write_text(_root() / "upgrade_status.json", json.dumps({
+                "ok": False, "message": f"{type(exc).__name__}: {exc}"[:2048],
+                "checked_at": time.time()}))
+        except Exception:
+            pass
         return 1
     finally:
         lock.close()

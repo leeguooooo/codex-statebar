@@ -155,6 +155,13 @@ def run() -> int:
         _line("new looks", "cxs theme" if config.looks_seen < LOOKS_VERSION else "seen")
         from .ocs import find_ocs
         _line("OCS integration", (find_ocs() or "not installed") if config.show_ocs else "off")
+        try:
+            import json
+            from .update_check import _root
+            state = json.loads((_root() / "upgrade_status.json").read_text())
+            _line("last update check", state.get("message", "unknown"), state.get("ok") is True)
+        except (OSError, ValueError, AttributeError):
+            pass
     except Exception as exc:
         _line("render config", exc, False)
     print()

@@ -114,7 +114,7 @@ def test_update_checks_write_hint_and_honor_disabled_install(monkeypatch):
     assert styles._update_hint() == '99.0.0'
     monkeypatch.setattr(config, 'load_config', lambda: config.StatusbarConfig(auto_upgrade=True))
     assert update_check.run()[0]
-    assert calls == [True]
+    assert calls == ([] if os.name == "nt" else [True])
 
 
 def test_picker_applies_and_acknowledges_new_looks(tmp_path, monkeypatch):
@@ -162,3 +162,17 @@ def test_new_install_defaults_to_aurora_and_preserves_saved_style(tmp_path):
     assert config.load_config(path).style == 'aurora'
     path.write_text('{"style":"classic"}')
     assert config.load_config(path).style == 'classic'
+
+
+def test_background_update_does_not_swap_a_different_native_host(monkeypatch):
+    if os.name == 'nt':
+        pytest.skip('Windows has no patched Codex assets')
+    from codex_statebar import updater, codex_launcher
+    release = {'tag_name':'v99.0.0', 'assets':[{'name':'codex-cxs-manifest.json', 'browser_download_url':'manifest'}]}
+    monkeypatch.setattr(updater, '_fetch', lambda url: json.dumps(release if url == updater.LATEST_API else {'codex_version':'0.999.0'}).encode())
+    binary = codex_launcher.CodexBinary(Path('/bin/codex-cxs'), 'codex-cli 0.164.0', (0,164,0,1), True)
+    monkeypatch.setattr(codex_launcher, 'inspect_install', lambda: codex_launcher.LaunchDecision(binary, binary, None, 'fixture'))
+    monkeypatch.setattr(config, 'load_config', lambda: config.StatusbarConfig(auto_upgrade=True))
+    monkeypatch.setattr(updater, 'upgrade_current_install', lambda: pytest.fail('must not replace live native tool host'))
+    ok, message = update_check.run()
+    assert ok and 'exit Codex' in message
