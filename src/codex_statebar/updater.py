@@ -13,6 +13,7 @@ import sys
 import tarfile
 import tempfile
 import urllib.request
+import urllib.error
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -59,6 +60,32 @@ def _fetch(url: str) -> bytes:
         context=_ssl_context(),
     ) as response:
         return response.read()
+
+
+def latest_release() -> dict:
+    try:
+        return json.loads(_fetch(LATEST_API))
+    except urllib.error.HTTPError as exc:
+        if exc.code not in (403, 429):
+            raise
+        return json.loads(_fetch(
+            f"https://github.com/{REPO}/releases/latest/download/cxs-release.json"))
+
+
+def _baseline_release(source_tag: str) -> dict:
+    try:
+        return json.loads(_fetch(f"{RELEASE_TAG_API}/{source_tag}"))
+    except urllib.error.HTTPError as exc:
+        if exc.code not in (403, 429):
+            raise
+        from urllib.parse import quote
+        base = f"https://github.com/{REPO}/releases/download/{quote(source_tag, safe='')}"
+        assets = []
+        for target in ('macos-arm64', 'macos-x86_64', 'linux-arm64', 'linux-x86_64'):
+            name = f"codex-cxs-{target}.tar.gz"
+            for asset in (name, name + '.sha256'):
+                assets.append({'name': asset, 'browser_download_url': f"{base}/{asset}"})
+        return {'tag_name': source_tag, 'assets': assets}
 
 
 def _version_tuple(value: str) -> tuple:
@@ -126,7 +153,7 @@ def _patched_codex_release(release: dict) -> Tuple[dict, Optional[dict]]:
         raise ValueError("Patched Codex manifest has no source_tag.")
     if source_tag == release.get("tag_name"):
         return release, manifest
-    return json.loads(_fetch(f"{RELEASE_TAG_API}/{source_tag}")), manifest
+    return _baseline_release(source_tag), manifest
 
 
 def _file_sha256(path: Path) -> Optional[str]:
@@ -212,7 +239,7 @@ def _extract_member(archive: bytes, member: str, destination: Path) -> None:
 def _upgrade_locked(target: str, destination: Path) -> Tuple[bool, str]:
     staged_paths: list[Path] = []
     try:
-        release = json.loads(_fetch(LATEST_API))
+        release = latest_release()
         tag = str(release.get("tag_name") or "")
         from . import __version__
         if tag and _version_tuple(tag) < _version_tuple(__version__):
@@ -329,6 +356,5 @@ def check_and_upgrade() -> Tuple[bool, str]:
 
 
 def spawn_background_upgrade_check() -> None:
-    # Background auto-upgrade is intentionally disabled. Explicit `cxs upgrade`
-    # is reviewable and avoids mutating an executable from the render hot path.
-    return None
+    from .update_check import schedule
+    schedule()

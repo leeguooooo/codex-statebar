@@ -237,6 +237,19 @@ jobs:
             tar -czf "$asset" -C "$host_dir/$target" codex-code-mode-host
             python3 -c "import hashlib,pathlib,sys; p=pathlib.Path(sys.argv[1]); pathlib.Path(str(p)+'.sha256').write_text(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name+'\n')" "$asset"
           done
+      - name: Write public release metadata (API quota fallback)
+        run: |
+          python3 - <<'PYMETA'
+          import json, os
+          from pathlib import Path
+          root = Path('dist')
+          tag = os.environ['GITHUB_REF_NAME']
+          repo = os.environ['GITHUB_REPOSITORY']
+          assets = [{'name': p.name, 'browser_download_url':
+                     f'https://github.com/{repo}/releases/download/{tag}/{p.name}'}
+                    for p in sorted(root.iterdir()) if p.is_file()]
+          (root / 'cxs-release.json').write_text(json.dumps({'tag_name': tag, 'assets': assets}))
+          PYMETA
       - uses: softprops/action-gh-release@v2
         with:
           draft: true

@@ -423,3 +423,25 @@ def test_failed_native_download_keeps_receipt_and_leaves_no_staging(tmp_path, mo
     assert (tmp_path / "codex-cxs").read_bytes() == b"codex"
     assert (tmp_path / ".codex-cxs-receipt.json").read_text() == receipt_before
     assert not list(tmp_path.glob("*.new"))
+
+
+def test_rate_limited_api_uses_public_release_metadata(monkeypatch):
+    import urllib.error
+    def fetch(url):
+        if url == updater.LATEST_API:
+            raise urllib.error.HTTPError(url, 403, 'rate limit', {}, None)
+        assert url.endswith('/releases/latest/download/cxs-release.json')
+        return b'{"tag_name":"v99.0.0","assets":[]}'
+    monkeypatch.setattr(updater, '_fetch', fetch)
+    assert updater.latest_release()['tag_name'] == 'v99.0.0'
+
+
+def test_rate_limited_baseline_keeps_checksum_urls(monkeypatch):
+    import urllib.error
+    def fetch(url):
+        raise urllib.error.HTTPError(url, 403, 'rate limit', {}, None)
+    monkeypatch.setattr(updater, '_fetch', fetch)
+    release = updater._baseline_release('v0.3.0')
+    archive, checksum = updater._asset_urls(release, 'macos-arm64', 'codex-cxs')
+    assert archive.endswith('/v0.3.0/codex-cxs-macos-arm64.tar.gz')
+    assert checksum == archive + '.sha256'

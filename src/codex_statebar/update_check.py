@@ -70,7 +70,7 @@ def run(*, check_only=False):
     from . import updater
     from .cache import atomic_write_text
     from .config import load_config
-    release = json.loads(updater._fetch(updater.LATEST_API))
+    release = updater.latest_release()
     latest = str(release.get('tag_name') or '').lstrip('v')
     if not latest or release.get('draft') or release.get('prerelease'):
         raise ValueError('No stable GitHub Release was found.')
