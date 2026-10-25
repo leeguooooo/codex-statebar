@@ -93,9 +93,21 @@ done
 if [ "$install_host" = "1" ]; then
   cp "$tmp/unpacked/codex-code-mode-host" "$install_stage/codex-code-mode-host"
   chmod +x "$install_stage/codex-code-mode-host"
-  mv -f "$install_stage/codex-code-mode-host" "$INSTALL_DIR/codex-code-mode-host"
 fi
-mv -f "$install_stage/codex-cxs" "$INSTALL_DIR/codex-cxs"
+# Swap the host and codex-cxs under the updater's lock: the launcher pins the
+# pair it sees while holding that lock in shared mode, so it never pairs a new
+# host with the old binary. perl ships with macOS and common Linux images.
+swap_native='set -eu
+if [ "$1" = "1" ]; then mv -f "$2/codex-code-mode-host" "$3/codex-code-mode-host"; fi
+mv -f "$2/codex-cxs" "$3/codex-cxs"'
+if command -v perl >/dev/null 2>&1; then
+  perl -MFcntl=:flock -e 'open(my $lock, ">>", shift) or die "cannot open lock: $!\n"; flock($lock, LOCK_EX) or die "cannot lock: $!\n"; exit(system(@ARGV) == 0 ? 0 : 1)' \
+    "$INSTALL_DIR/.cxs-upgrade.lock" sh -c "$swap_native" sh "$install_host" "$install_stage" "$INSTALL_DIR"
+else
+  # ponytail: without perl the pair is swapped unlocked; a launcher started in
+  # that instant can pin a mismatched pair until its next launch.
+  sh -c "$swap_native" sh "$install_host" "$install_stage" "$INSTALL_DIR"
+fi
 mv -f "$install_stage/cxs" "$INSTALL_DIR/cxs"
 
 if [ "$INSTALL_CODEX_DEFAULT" = "1" ]; then

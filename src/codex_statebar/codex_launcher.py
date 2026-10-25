@@ -11,6 +11,7 @@ import os
 import platform
 import re
 import shutil
+import stat
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -339,6 +340,196 @@ def ensure_code_mode_host(
     return target
 
 
+_EXEC_ALIAS_DIR = ".cxs-exec"
+_VERSION_KEY_RE = re.compile(r"\d+-\d+-\d+")
+
+
+def _alias_key(source: os.stat_result) -> str:
+    return f"{source.st_dev}-{source.st_ino}-{source.st_mtime_ns}"
+
+
+def exec_alias_path(selected: CodexBinary) -> Path:
+    """Return the private path that execs ``selected``; it only stats the binary.
+
+    Herdr recognizes Codex by the executable's file name, so ``codex-cxs`` is not
+    detected. A hard link named ``codex`` in a private directory runs the same
+    binary under the name Herdr expects. Each binary version gets its own
+    directory keyed by inode and mtime, so a stale launcher cannot overwrite the
+    link another launcher published for a newer version.
+    """
+    source = os.stat(selected.path)
+    return selected.path.parent / _EXEC_ALIAS_DIR / _alias_key(source) / "codex"
+
+
+def _is_private_dir(path: Path) -> bool:
+    # lstat, not stat: a symlink (even to a directory) is not ours to write or delete.
+    try:
+        info = os.lstat(path)
+    except OSError:
+        return False
+    return stat.S_ISDIR(info.st_mode) and info.st_uid == os.getuid()
+
+
+def _prune_alias_versions(root: Path, keep: str) -> None:
+    # Each link keeps an old binary's disk space alive, so old versions go.
+    # Only our own version directories are candidates; unknown entries stay.
+    # The newest other version is kept too, so a session started just before an
+    # upgrade still finds its own code-mode host beside its executable.
+    # ponytail: sessions that outlive two upgrades lose their host; key by
+    # running processes if that ever matters. A launcher that loses its path
+    # here falls back in _exec_chain.
+    try:
+        children = [
+            child for child in root.iterdir()
+            if child.name != keep and _VERSION_KEY_RE.fullmatch(child.name) and _is_private_dir(child)
+        ]
+        children.sort(key=lambda child: os.lstat(child).st_mtime_ns, reverse=True)
+    except OSError:
+        return
+    for child in children[1:]:
+        shutil.rmtree(child, ignore_errors=True)
+
+
+def _same_inode(a: os.stat_result, b: os.stat_result) -> bool:
+    return (a.st_dev, a.st_ino) == (b.st_dev, b.st_ino)
+
+
+def _link_code_mode_host(version_dir: Path, host: Path) -> None:
+    """Pin the code-mode host beside the alias.
+
+    Codex looks for its tool host beside the executable it was started as. A
+    release copy is hard-linked, so a later upgrade of the managed file cannot
+    pair this binary with another version's host. A fallback link from
+    ensure_code_mode_host was already version-matched and is followed once.
+    """
+    link = version_dir / _code_mode_host_name()
+    staging = version_dir / f".{link.name}.{os.getpid()}.tmp"
+    try:
+        if host.is_symlink():
+            target = str(host.resolve(strict=True))
+            try:
+                if os.readlink(link) == target:
+                    return
+            except OSError:
+                pass
+            staging.unlink(missing_ok=True)
+            staging.symlink_to(target)
+        else:
+            try:
+                if _same_inode(os.lstat(link), os.stat(host)):
+                    return
+            except OSError:
+                pass
+            staging.unlink(missing_ok=True)
+            os.link(host, staging)
+        os.replace(staging, link)
+    finally:
+        try:
+            staging.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def _shared_upgrade_lock(managed: Path):
+    """Hold the updater's lock in shared mode, or return None while an upgrade runs.
+
+    The updater replaces codex-cxs and its host under this lock in exclusive
+    mode, so a shared hold never observes a half-upgraded pair.
+    install.sh swaps the pair under the same lock (via perl's flock); without
+    perl it swaps unlocked, a documented ceiling there.
+    """
+    if os.name == "nt":
+        return None
+    import fcntl
+    try:
+        handle = (managed / ".cxs-upgrade.lock").open("a+")
+    except OSError:
+        return None
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_SH | fcntl.LOCK_NB)
+    except OSError:
+        handle.close()
+        return None
+    return handle
+
+
+def _publish_alias(selected: CodexBinary, host: Optional[Path] = None) -> Optional[Path]:
+    """Publish the hard link for ``selected``; return None when that is not possible.
+
+    Runs under the updater's lock in shared mode. The link is created under a
+    temp name and moved into place with ``os.replace``; identities are checked
+    again after linking. When ``host`` is given it is pinned beside the alias;
+    if that fails the alias is not used.
+    """
+    root = selected.path.parent / _EXEC_ALIAS_DIR
+    lock = _shared_upgrade_lock(selected.path.parent)
+    if lock is None:
+        return None
+    temp = None
+    try:
+        source = os.stat(selected.path)
+        key = _alias_key(source)
+        root.mkdir(mode=0o755, exist_ok=True)
+        if not _is_private_dir(root):
+            raise OSError("alias root is not a private directory")
+        version_dir = root / key
+        version_dir.mkdir(mode=0o755, exist_ok=True)
+        if not _is_private_dir(version_dir):
+            raise OSError("alias version directory is not a private directory")
+        alias = version_dir / "codex"
+        if host is not None:
+            _link_code_mode_host(version_dir, host)
+        try:
+            current = os.lstat(alias)
+            if stat.S_ISREG(current.st_mode) and _same_inode(current, source):
+                _prune_alias_versions(root, key)
+                return alias
+        except FileNotFoundError:
+            pass
+        temp = version_dir / f".codex.{os.getpid()}.tmp"
+        temp.unlink(missing_ok=True)
+        os.link(selected.path, temp)
+        if _alias_key(os.stat(temp)) != key:
+            raise OSError("patched Codex changed while publishing its link")
+        os.replace(temp, alias)
+        _prune_alias_versions(root, key)
+        return alias
+    except OSError:
+        if temp is not None:
+            try:
+                temp.unlink(missing_ok=True)
+            except OSError:
+                pass
+        return None
+    finally:
+        lock.close()
+
+
+def _candidate_paths(selected: CodexBinary, host: Optional[Path] = None) -> list[Path]:
+    if not selected.patched:
+        return [selected.path]
+    alias = _publish_alias(selected, host)
+    return [alias, selected.path] if alias else [selected.path]
+
+
+def _exec_chain(paths: Sequence[Path], args: Sequence[str], environment: Optional[dict] = None) -> int:
+    """Try each path once with the same argv and environment; never retry recursively."""
+    failure: Optional[OSError] = None
+    for path in paths:
+        try:
+            os.execve(
+                str(path),
+                [str(path), *args],
+                independent_process_environment() if environment is None else environment,
+            )
+        except OSError as exc:
+            failure = exc
+            continue
+        return 127
+    print(f"codex-statebar: could not start {paths[-1]}: {failure}", file=sys.stderr)
+    return 127
+
+
 def launch(args: Sequence[str]) -> int:
     if os.environ.get(_VERSION_PROBE_ENV):
         print("codex-statebar: refused recursive Codex version probe", file=sys.stderr)
@@ -359,17 +550,13 @@ def launch(args: Sequence[str]) -> int:
     # Mark later frozen descendants as independent before replacing this process.
     environment = independent_process_environment()
     environment.pop("CODEX_STATEBAR_STATUS_COMMAND", None)
+    host = None
     if selected.patched:
         import json
-        ensure_code_mode_host(selected, decision.official)
+        host = ensure_code_mode_host(selected, decision.official)
         entrypoint = os.environ.get("CODEX_STATEBAR_ENTRYPOINT")
         command = ([entrypoint, "render"] if entrypoint else
                    ([sys.executable, "render"] if getattr(sys, "frozen", False) else
                     [sys.executable, "-m", "codex_statebar", "render"]))
         environment["CODEX_STATEBAR_STATUS_COMMAND"] = json.dumps(command)
-    os.execve(
-        str(selected.path),
-        [str(selected.path), *args],
-        environment,
-    )
-    return 127
+    return _exec_chain(_candidate_paths(selected, host), args, environment)

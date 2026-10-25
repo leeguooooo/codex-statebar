@@ -41,7 +41,13 @@ def _binary_contains(path: str, needle: bytes) -> bool:
 
 
 def run() -> int:
-    from .codex_launcher import independent_process_environment, inspect_install
+    from .codex_launcher import (
+        _is_cmux_launcher,
+        _is_managed_launcher,
+        exec_alias_path,
+        independent_process_environment,
+        inspect_install,
+    )
 
     print("\n  cxs doctor — Codex Statebar self-check")
     print(f"  {_paint('2', '─' * 64)}")
@@ -55,8 +61,21 @@ def run() -> int:
         _line("statebar version", exc, False)
     _line("python", f"{sys.version.split()[0]} ({sys.executable})")
 
+    from pathlib import Path
+
+    launch_decision = inspect_install()
     codex = shutil.which("codex")
-    if codex:
+    if codex and (_is_managed_launcher(Path(codex)) or _is_cmux_launcher(Path(codex))):
+        # A routing wrapper (managed or cmux shim) would reach launch and publish
+        # the exec link, so doctor reports the decision it already made instead.
+        chosen = launch_decision.selected
+        _line(
+            "Codex CLI",
+            f"{chosen.version_text} ({chosen.path}); PATH routing wrapper not executed" if chosen
+            else "no usable Codex; PATH routing wrapper not executed",
+            chosen is not None,
+        )
+    elif codex:
         try:
             completed = subprocess.run(
                 [codex, "--version"],
@@ -72,7 +91,6 @@ def run() -> int:
     else:
         _line("Codex CLI", "not on PATH", False)
 
-    launch_decision = inspect_install()
     patched = launch_decision.patched
     official = launch_decision.official
     _line(
@@ -86,6 +104,12 @@ def run() -> int:
         official is not None,
     )
     selected = launch_decision.selected
+    planned = None
+    if selected and selected.patched:
+        try:
+            planned = exec_alias_path(selected)
+        except OSError:
+            planned = None
     routing_ok = not (
         official
         and patched
@@ -98,6 +122,7 @@ def run() -> int:
         (
             f"{launch_decision.reason}; launcher selects "
             f"{selected.version_text} ({selected.path})"
+            + (f"; 计划路径 {planned}，失败时回退 {selected.path}" if planned else "")
             if selected
             else launch_decision.reason
         ),
