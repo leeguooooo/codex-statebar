@@ -155,3 +155,10 @@ def test_safe_repository_links_strip_credentials_and_clip(tmp_path):
     clipped = clip_lines(text, 28)
     assert '\x1b]8;;\x07' in clipped
     assert 'https://' not in styles.render_identity_line(info, theme=get_theme('graphite'), dirty=False, use_color=False)
+
+
+def test_new_install_defaults_to_aurora_and_preserves_saved_style(tmp_path):
+    path = tmp_path / 'cfg.json'
+    assert config.load_config(path).style == 'aurora'
+    path.write_text('{"style":"classic"}')
+    assert config.load_config(path).style == 'classic'

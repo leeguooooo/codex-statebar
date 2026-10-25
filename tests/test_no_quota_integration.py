@@ -28,6 +28,7 @@ def _payload_with_quota():
 def _write_config(tmp_path, **values):
     (tmp_path / ".claude").mkdir(parents=True)
     base = {
+        "style": "classic",  # bracket assertions below exercise this layout
         "show_project_branch": False,
         "show_cache_age": False,
         "show_todos": False,
