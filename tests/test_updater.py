@@ -259,14 +259,13 @@ def test_upgrade_installs_code_mode_host_over_fallback_link(tmp_path, monkeypatc
 
 
 def test_upgrade_refuses_concurrent_run_and_cleans_staging(tmp_path, monkeypatch):
-    import fcntl
     cxs = tmp_path / "cxs"
     cxs.write_bytes(b"old-cxs")
     monkeypatch.setattr(updater, "_target", lambda: "test")
     monkeypatch.setattr(updater, "_destination", lambda: cxs)
 
     with (tmp_path / ".cxs-upgrade.lock").open("a+") as held:
-        fcntl.flock(held.fileno(), fcntl.LOCK_EX)
+        assert updater._try_lock(held)
         ok, message = updater.upgrade_current_install()
     assert ok is False and "already running" in message
 

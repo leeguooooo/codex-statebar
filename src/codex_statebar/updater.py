@@ -202,6 +202,21 @@ def _upgrade_locked(target: str, destination: Path) -> Tuple[bool, str]:
                 pass
 
 
+def _try_lock(handle) -> bool:
+    """Take a non-blocking exclusive lock; released when the handle closes."""
+    try:
+        if os.name == "nt":
+            import msvcrt
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return False
+    return True
+
+
 def upgrade_current_install() -> Tuple[bool, str]:
     target = _target()
     if not target:
@@ -221,15 +236,8 @@ def upgrade_current_install() -> Tuple[bool, str]:
     except OSError as exc:
         return False, f"Upgrade failed: cannot open lock {lock_path}: {exc}"
     with lock:
-        try:
-            import fcntl
-        except ImportError:  # Windows: single cxs.exe, no shared staging.
-            fcntl = None
-        if fcntl is not None:
-            try:
-                fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except OSError:
-                return False, "Another cxs upgrade is already running."
+        if not _try_lock(lock):
+            return False, "Another cxs upgrade is already running."
         return _upgrade_locked(target, destination)
 
 
