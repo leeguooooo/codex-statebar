@@ -375,9 +375,8 @@ def _prune_alias_versions(root: Path, keep: str) -> None:
     # Only our own version directories are candidates; unknown entries stay.
     # The newest other version is kept too, so a session started just before an
     # upgrade still finds its own code-mode host beside its executable.
-    # ponytail: sessions that outlive two upgrades lose their host; key by
-    # running processes if that ever matters. A launcher that loses its path
-    # here falls back in _exec_chain.
+    # Active sessions hold a shared lease across exec. Only remove an unused
+    # directory while holding its exclusive lease, including during deletion.
     try:
         children = [
             child for child in root.iterdir()
@@ -387,7 +386,46 @@ def _prune_alias_versions(root: Path, keep: str) -> None:
     except OSError:
         return
     for child in children[1:]:
-        shutil.rmtree(child, ignore_errors=True)
+        lease = _alias_lease(child, exclusive=True)
+        if lease is not None:
+            with lease:
+                shutil.rmtree(child, ignore_errors=True)
+
+
+def _alias_lease(version_dir: Path, *, exclusive: bool = False):
+    """Lock a stable file outside the directory that cleanup may remove.
+
+    Never unlink lease files: another process may already have opened one.
+    Replacing it would create two independently locked inodes for one version.
+    """
+    import fcntl
+
+    root = version_dir.parent
+    descriptor = None
+    try:
+        if not _is_private_dir(root):
+            return None
+        leases = root / ".leases"
+        leases.mkdir(mode=0o700, exist_ok=True)
+        if not _is_private_dir(leases):
+            return None
+        descriptor = os.open(
+            leases / (version_dir.name + ".lock"),
+            os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW,
+            0o600,
+        )
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid():
+            raise OSError("alias lease is not a private regular file")
+        fcntl.flock(descriptor, (fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH) | fcntl.LOCK_NB)
+        handle = os.fdopen(descriptor, "a+")
+        descriptor = None
+        return handle
+    except OSError:
+        return None
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
 
 
 def _same_inode(a: os.stat_result, b: os.stat_result) -> bool:
@@ -516,7 +554,18 @@ def _exec_chain(paths: Sequence[Path], args: Sequence[str], environment: Optiona
     """Try each path once with the same argv and environment; never retry recursively."""
     failure: Optional[OSError] = None
     for path in paths:
+        lease = None
         try:
+            if (path.name == "codex" and path.parent.parent.name == _EXEC_ALIAS_DIR
+                    and _VERSION_KEY_RE.fullmatch(path.parent.name)):
+                lease = _alias_lease(path.parent)
+                if lease is None:
+                    raise OSError("cannot lease patched Codex alias")
+                # Cleanup may have won the lock before us. Do not exec an alias
+                # whose directory was removed while waiting to acquire a lease.
+                if not path.is_file():
+                    raise FileNotFoundError(path)
+                os.set_inheritable(lease.fileno(), True)
             os.execve(
                 str(path),
                 [str(path), *args],
@@ -525,6 +574,9 @@ def _exec_chain(paths: Sequence[Path], args: Sequence[str], environment: Optiona
         except OSError as exc:
             failure = exc
             continue
+        finally:
+            if lease is not None:
+                lease.close()
         return 127
     print(f"codex-statebar: could not start {paths[-1]}: {failure}", file=sys.stderr)
     return 127

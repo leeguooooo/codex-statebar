@@ -1,6 +1,8 @@
 import os
 from pathlib import Path
 
+import pytest
+
 from codex_statebar import codex_launcher, doctor, rollout, setup
 
 
@@ -57,6 +59,7 @@ def _stat_key(path: Path):
     return st.st_ino, st.st_mtime_ns, st.st_mode, st.st_size
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX routing wrapper integration")
 def test_doctor_does_not_run_managed_wrapper_or_publish_links(tmp_path, monkeypatch, capsys):
     # The PATH codex is the managed wrapper. Running it would call launch and
     # publish the exec link, so doctor must neither run it nor change the directory.
@@ -89,6 +92,7 @@ def test_doctor_does_not_run_managed_wrapper_or_publish_links(tmp_path, monkeypa
     assert "计划路径" in output and "失败时回退" in output
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX routing wrapper integration")
 def test_doctor_does_not_run_cmux_shim_that_routes_to_managed_wrapper(tmp_path, monkeypatch, capsys):
     # cmux shims forward to the managed wrapper, which would publish links and write
     # files. Doctor must leave both directories exactly as they were.

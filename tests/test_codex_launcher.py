@@ -567,7 +567,7 @@ def test_stale_launcher_cannot_overwrite_newer_alias(tmp_path, monkeypatch):
     shutil.rmtree(alias_a.parent)
     calls_a.clear()
     assert codex_launcher._exec_chain(candidates_a, []) == 127
-    assert calls_a == [str(alias_a), str(patched)], "a pruned link falls back to the source path"
+    assert calls_a == [str(patched)], "a pruned link is skipped before exec and falls back to the source path"
 
 
 def test_official_launch_does_not_create_alias(tmp_path, monkeypatch):
@@ -722,3 +722,81 @@ def test_no_alias_while_the_updater_holds_its_lock(tmp_path, monkeypatch):
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         assert codex_launcher._candidate_paths(patched, host) == [source]
     assert not (managed / ".cxs-exec").exists()
+
+
+@pytest.mark.parametrize("kill_session", [False, True])
+def test_active_alias_survives_two_upgrades_until_process_exits(tmp_path, kill_session):
+    import selectors
+    import subprocess
+    import sys
+
+    managed = tmp_path / "managed"
+    managed.mkdir()
+    source = managed / "codex-cxs"
+    host = managed / codex_launcher._code_mode_host_name()
+
+    def publish(version):
+        staged = _write_exec(
+            managed / "next",
+            '#!/bin/sh\necho ready\nread line\n"$(dirname "$0")/codex-code-mode-host"\n',
+        )
+        os.replace(staged, source)
+        staged = _write_exec(managed / "next", f"#!/bin/sh\necho host-{version}\n")
+        os.replace(staged, host)
+        selected = codex_launcher.CodexBinary(source, str(version), (0, version, 0, 1), True)
+        return codex_launcher._candidate_paths(selected, host)[0]
+
+    alias_a = publish(1)
+    process = subprocess.Popen(
+        [sys.executable, "-c",
+         "import sys; from pathlib import Path; from codex_statebar.codex_launcher "
+         "import _exec_chain; sys.exit(_exec_chain([Path(sys.argv[1])], []))", str(alias_a)],
+        env={**os.environ, "PYTHONPATH": str(Path(codex_launcher.__file__).parents[1])},
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    try:
+        with selectors.DefaultSelector() as ready:
+            ready.register(process.stdout, selectors.EVENT_READ)
+            assert ready.select(timeout=10), "alias did not start"
+        assert process.stdout.readline().strip() == "ready"
+        publish(2)
+        alias_c = publish(3)
+        assert process.poll() is None
+        assert (alias_a.parent / host.name).read_text() == "#!/bin/sh\necho host-1\n"
+        assert alias_a.exists()
+        if kill_session:
+            process.kill()
+            process.communicate(timeout=10)
+        else:
+            out, err = process.communicate("continue\n", timeout=10)
+            assert process.returncode == 0, err
+            assert out.strip() == "host-1"
+        codex_launcher._prune_alias_versions(alias_c.parent.parent, alias_c.parent.name)
+        assert not alias_a.parent.exists(), "exited sessions no longer pin old versions"
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.communicate(timeout=10)
+
+
+def test_symlinked_lease_directory_prevents_pruning(tmp_path):
+    managed = tmp_path / "managed"
+    managed.mkdir()
+    source = _write_exec(managed / "codex-cxs", "binary")
+    selected = codex_launcher.CodexBinary(source, "1", (0, 1, 0, 1), True)
+    alias = codex_launcher._candidate_paths(selected)[0]
+    root = alias.parent.parent
+    old = root / "1-2-3"
+    old.mkdir()
+    (old / "codex").write_text("old")
+    os.utime(old, ns=(1, 1))
+    previous = root / "1-2-4"
+    previous.mkdir()
+    external = tmp_path / "external"
+    external.mkdir()
+    (root / ".leases").symlink_to(external, target_is_directory=True)
+
+    codex_launcher._prune_alias_versions(root, alias.parent.name)
+
+    assert old.exists()
+    assert not list(external.iterdir())
