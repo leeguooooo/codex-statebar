@@ -113,3 +113,8 @@ def test_ultracode_spells_out_workflows():
     # other tiers are verbatim, no annotation
     s2 = render_mode_line(effort="high", thinking=True, theme=THEME, use_color=True)
     assert "+workflows" not in _strip(s2)
+
+
+def test_unknown_fast_mode_is_visible():
+    assert render_mode_line(effort='medium', fast='unknown', theme=THEME,
+                            use_color=False) == '⚙ effort:medium · fast:unknown'

@@ -67,14 +67,14 @@ else:
             'id': SID, 'cwd':str(tree), 'source':'cli'}}) + '\n')
         payload = {'_codex_live':True, 'thread_id':SID, 'rollout_path':str(rollout),
                    'cwd':str(tree), 'codex_version':'0.164.0', 'model':'gpt-feature-probe',
-                   'terminal_columns':160, 'reasoning_effort':'high',
+                   'terminal_columns':160, 'reasoning_effort':'high', 'fast_mode': True,
                    'context':{'used_percent':20,'window_tokens':200000},
                    'limits':{'weekly':{'used_percent':73}}}
         run([entrypoint, '-m', 'codex_statebar._git_refresh', str(tree)])
         result = run([entrypoint, 'render'], input=json.dumps(payload), cwd=tree)
         plain = ANSI.sub('', result.stdout)
         for token in ('73%', '20%', 'worktree (🌳1)', 'project', 'ocs fixture',
-                      'codex-' + SID, '3 unread', 'fixture-peer', 'cxs theme', 'effort:high'):
+                      'codex-' + SID, '3 unread', 'fixture-peer', 'cxs theme', 'effort:high', 'fast:on'):
             assert token in plain, (token, plain)
         assert '5h' not in plain.lower() and 'fixture-secret' not in result.stdout
         assert '→0%' not in plain, plain

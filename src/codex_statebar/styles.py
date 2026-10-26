@@ -1204,7 +1204,8 @@ def render_mode_line(*, effort: str = "", thinking=None, fast=None,
     if thinking is not None:
         segs.append(("think:", "on" if thinking else "off", _fg(theme.ink)))
     if fast is not None:
-        segs.append(("fast:", "on" if fast else "off", _fg(theme.ink)))
+        value = "unknown" if fast == "unknown" else ("on" if fast else "off")
+        segs.append(("fast:", value, _fg(theme.ink)))
     if style:
         segs.append(("style:", str(style), _fg(theme.ink)))
     if not segs:

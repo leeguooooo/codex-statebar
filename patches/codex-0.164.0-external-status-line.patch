@@ -287,7 +287,7 @@ index d7340e5..18a050a 100644
          let enabled = !selections.status_line_items.is_empty();
          self.bottom_pane.set_status_line_enabled(enabled);
          if !enabled {
-@@ -473,7 +489,59 @@ impl ChatWidget {
+@@ -473,7 +489,60 @@ impl ChatWidget {
          parse_items_with_invalids(self.configured_status_line_items())
      }
  
@@ -323,6 +323,7 @@ index d7340e5..18a050a 100644
 +            "cwd": cwd,
 +            "model": {"id": self.current_model(), "display_name": self.model_display_name()},
 +            "reasoning_effort": self.effective_reasoning_effort(),
++            "fast_mode": self.current_service_tier() == Some(ServiceTier::Fast.request_value()),
 +            "codex_version": CODEX_CLI_VERSION,
 +            "terminal_columns": width,
 +            "context": {"window_tokens": size, "used_percent": used},

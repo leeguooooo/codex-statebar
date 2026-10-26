@@ -17,7 +17,7 @@ import time
 ANSI = re.compile(rb'\x1b\[[0-?]*[ -/]*[@-~]')
 
 
-def verify(binary, expect_native=False):
+def verify(binary, expect_native=False, fast=False):
     binary = str(Path(binary).resolve())
     with tempfile.TemporaryDirectory(prefix='codex-footer-acceptance-') as directory:
         root = Path(directory)
@@ -38,12 +38,14 @@ base_url = "http://127.0.0.1:9/v1"
 wire_api = "responses"
 requires_openai_auth = false
 '''
+        config = 'service_tier = ' + json.dumps('priority' if fast else 'default') + '\n' + config
         config += '\n[projects.' + json.dumps(str(project)) + ']\ntrust_level = "trusted"\n'
         (codex / 'config.toml').write_text(config)
         renderer = root / 'renderer.py'
         renderer.write_text('''import json, os, sys
 data = json.load(sys.stdin)
 assert data["codex_version"] == "0.164.0"
+assert data["fast_mode"] is (os.environ["EXPECT_FAST"] == "1")
 assert data["terminal_columns"] == int(os.environ["COLUMNS"])
 columns = int(os.environ.get("COLUMNS", "0"))
 print(str(columns) * 8 if columns < 50 else "AURORA_LINE_ONE columns=" + str(columns))
@@ -53,6 +55,7 @@ print("AURORA_MODE_LINE")
         environment = {k: v for k, v in os.environ.items()
                        if not k.startswith('_PYI_') and k not in ('OPENAI_API_KEY', 'ANTHROPIC_API_KEY')}
         environment.update(HOME=str(home), CODEX_HOME=str(codex), TERM='xterm-256color',
+                           EXPECT_FAST='1' if fast else '0',
                            CODEX_STATEBAR_STATUS_COMMAND=json.dumps([__import__('sys').executable, str(renderer)]))
         pid, master = pty.fork()
         if pid == 0:
@@ -88,7 +91,8 @@ print("AURORA_MODE_LINE")
                     columns = int(resized_columns.group(1))
                     assert 0 < columns <= 40
                     return {'embedded_three_rows': True, 'resize_width_verified': True,
-                            'resize_columns': columns, 'isolated_auth': True, 'prompts_sent': 0}
+                            'resize_columns': columns, 'fast_mode': fast,
+                            'isolated_auth': True, 'prompts_sent': 0}
                 if not expect_native and not resized and all(marker in plain for marker in
                          (b'AURORA_LINE_ONE', b'AURORA_PROJECT_LINE', b'AURORA_MODE_LINE')):
                     embedded = True
@@ -120,4 +124,7 @@ if __name__ == '__main__':
     parser.add_argument('binary')
     parser.add_argument('--expect-native', action='store_true')
     args = parser.parse_args()
-    print(json.dumps(verify(args.binary, args.expect_native), indent=2))
+    results = [verify(args.binary, args.expect_native)]
+    if not args.expect_native:
+        results.append(verify(args.binary, fast=True))
+    print(json.dumps(results, indent=2))

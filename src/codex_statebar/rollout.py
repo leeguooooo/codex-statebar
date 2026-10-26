@@ -190,7 +190,8 @@ def _external_payload(data: dict) -> Dict[str, Any]:
         out["display_name"] = model
     out["session_id"] = data.get("thread_id") or data.get("session_id") or data.get("id")
     out["effort_level"] = data.get("reasoning_effort") or data.get("effort")
-    out["fast_mode"] = data.get("fast_mode")
+    out["fast_mode"] = (data["fast_mode"] if isinstance(data.get("fast_mode"), bool)
+                        else ("unknown" if data else None))
     columns = _finite_number(data.get("terminal_columns"))
     if columns is not None and 0 < columns <= 10000:
         out["terminal_columns"] = int(columns)
@@ -294,6 +295,7 @@ def collect_status(data: Optional[dict] = None) -> Dict[str, Any]:
     out["_has_stdin"] = True
     out["transcript_path"] = str(path)
     out["rollout_path"] = str(path)
+    out.setdefault("fast_mode", "unknown")
     meta = _meta(path)
     defaults = {
         "session_id": meta.get("id") or meta.get("session_id"),

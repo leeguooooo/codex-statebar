@@ -235,3 +235,17 @@ def test_fresh_native_weekly_does_not_reuse_an_expired_reset(tmp_path, monkeypat
                                     'limits': {'weekly': {'used_percent': 1}}})
     assert status['rate_limit_7d_pct'] == 1
     assert status['rate_limit_7d_resets_at'] is None
+
+
+@pytest.mark.parametrize('value, expected', [
+    (True, True), (False, False), (None, 'unknown'),
+    ('false', 'unknown'), (1, 'unknown'),
+])
+def test_live_fast_mode_is_explicit_and_strict(tmp_path, monkeypatch, value, expected):
+    monkeypatch.setenv('CODEX_HOME', str(tmp_path / 'empty'))
+    status = rollout.collect_status({'_codex_live': True, 'fast_mode': value})
+    assert status['fast_mode'] == expected
+
+
+def test_old_live_payload_reports_unknown_fast_mode():
+    assert rollout.collect_status({'_codex_live': True})['fast_mode'] == 'unknown'
