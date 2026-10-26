@@ -85,20 +85,25 @@ else:
         result = run([entrypoint, 'render'], input=json.dumps(payload), cwd=tree)
         plain = ANSI.sub('', result.stdout)
         assert '━' in plain and 'cxs theme' not in plain, plain
-        # The bundled reset module must render localized completed/pending states.
+        # Pending announcements take precedence over localized reset history.
         now = time.time()
         reset_cache = home / '.cache/codex-statebar/resets.json'
         reset_cache.parent.mkdir(parents=True, exist_ok=True)
         data = {'latest_reset': {'announced_at': datetime.fromtimestamp(
                     now - 8 * 3600, timezone.utc).isoformat(), 'reset_type': 'regular'},
                 'scheduled_reset': {'status': 'scheduled', 'scheduled_for':
-                    datetime.fromtimestamp(now + 2 * 3600, timezone.utc).isoformat()}}
+                    datetime.fromtimestamp(now + 77 * 60, timezone.utc).isoformat()}}
         reset_cache.write_text(json.dumps({'data': data, 'fetched_at': now, 'checked_at': now}))
         run([entrypoint, 'config', 'set', 'show_resets', 'true'])
         run([entrypoint, 'config', 'set', 'lang', 'ja'])
         result = run([entrypoint, 'render'], input=json.dumps(payload), cwd=tree)
         plain = ANSI.sub('', result.stdout)
-        assert '公式リセット' in plain and 'リセット告知' in plain, plain
+        assert 'リセット告知 1時間17分後' in plain and '公式リセット' not in plain, plain
+        data.pop('scheduled_reset')
+        reset_cache.write_text(json.dumps({'data': data, 'fetched_at': now, 'checked_at': now}))
+        result = run([entrypoint, 'render'], input=json.dumps(payload), cwd=tree)
+        plain = ANSI.sub('', result.stdout)
+        assert '公式リセット 8時間前' in plain and 'リセット告知' not in plain, plain
         run([entrypoint, 'config', 'set', 'show_resets', 'false'])
         result = run([entrypoint, 'render'], input=json.dumps(payload), cwd=tree)
         assert 'リセット' not in result.stdout, result.stdout
