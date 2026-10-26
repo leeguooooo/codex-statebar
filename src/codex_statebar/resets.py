@@ -50,8 +50,18 @@ _UNITS = {"en": ("m", "h", "d"), "zh": ("分钟", "小时", "天"),
 
 def duration(seconds, lang, future=False):
     seconds = max(0, seconds)
+    if future:
+        # Keep the remaining minutes: rounding 1h17m up to 2h makes the
+        # announcement look later than the source's scheduled deadline.
+        minutes = max(1, math.ceil(seconds / 60))
+        days, minutes = divmod(minutes, 1440)
+        hours, minutes = divmod(minutes, 60)
+        units = _UNITS.get(lang, _UNITS["en"])
+        return "".join(str(value) + units[index]
+                       for value, index in ((days, 2), (hours, 1), (minutes, 0))
+                       if value)
     divisor, index = (86400, 2) if seconds >= 86400 else ((3600, 1) if seconds >= 3600 else (60, 0))
-    value = math.ceil(seconds / divisor) if future else int(seconds / divisor)
+    value = int(seconds / divisor)
     return str(max(1, value)) + _UNITS.get(lang, _UNITS["en"])[index]
 
 
@@ -81,7 +91,9 @@ def status_text(entry, lang="en", now=None):
             prob = f" ({chance}%)" if type(chance) is int and 0 <= chance <= 100 else ""
             parts.append(text[4].format(p=prob))
     latest = data.get("latest_reset")
-    if isinstance(latest, dict):
+    # A scheduled announcement takes precedence over the previous reset;
+    # showing both without a history label confuses past and upcoming events.
+    if isinstance(latest, dict) and not (isinstance(scheduled, dict) and scheduled.get("status") == "scheduled"):
         stamp = epoch(latest.get("announced_at"))
         if stamp and stamp <= now:
             template = text[1] if latest.get("reset_type") == "banked" else text[0]

@@ -34,6 +34,29 @@ def test_scheduled_deadline_never_turns_into_completed():
     assert "等待确认" in resets.status_text(value, "zh", NOW)
 
 
+@pytest.mark.parametrize("seconds,expected", [
+    (1, "1分钟"), (59, "1分钟"), (60, "1分钟"),
+    (61, "2分钟"), (3600, "1小时"), (4620, "1小时17分钟"),
+    (7199, "2小时"), (86460, "1天1分钟"),
+])
+def test_scheduled_countdown_preserves_minutes(seconds, expected):
+    value = entry(scheduled_reset={"status": "scheduled", "scheduled_for": stamp(seconds)})
+    assert resets.status_text(value, "zh", NOW) == f"↻ 已公告重置 · {expected}后"
+
+
+@pytest.mark.parametrize("offset", [4620, -1])
+def test_scheduled_reset_hides_previous_completed_reset(offset):
+    value = entry(
+        scheduled_reset={"status": "scheduled", "scheduled_for": stamp(offset)},
+        latest_reset={"announced_at": stamp(-23 * 3600), "reset_type": "regular"},
+    )
+    output = resets.status_text(value, "zh", NOW)
+    assert "已公告重置" in output
+    assert "官方重置" not in output
+    if offset < 0:
+        assert "等待确认" in output
+
+
 def test_watch_is_expiring_ai_forecast_not_a_countdown():
     watch = {"observed_at": stamp(-100), "expires_at": stamp(100), "reset_chance_percent": 75,
              "text": "\x1b[31mremote injection"}
