@@ -27,7 +27,7 @@ def verify(binary, expect_native=False, fast=False):
         codex.mkdir()
         project = root / 'workspace'
         project.mkdir()
-        config = '''model = "gpt-ui-probe"
+        config = '''model = "gpt-6.1-sol"
 model_provider = "footer_probe"
 check_for_update_on_startup = false
 [tui]
@@ -45,6 +45,8 @@ requires_openai_auth = false
         renderer.write_text('''import json, os, sys
 data = json.load(sys.stdin)
 assert data["codex_version"] == "0.164.0"
+with open(os.environ["FAST_PROBE_PATH"], "w") as probe:
+    json.dump({"fast_mode": data.get("fast_mode")}, probe)
 assert data["fast_mode"] is (os.environ["EXPECT_FAST"] == "1")
 assert data["terminal_columns"] == int(os.environ["COLUMNS"])
 columns = int(os.environ.get("COLUMNS", "0"))
@@ -55,7 +57,7 @@ print("AURORA_MODE_LINE")
         environment = {k: v for k, v in os.environ.items()
                        if not k.startswith('_PYI_') and k not in ('OPENAI_API_KEY', 'ANTHROPIC_API_KEY')}
         environment.update(HOME=str(home), CODEX_HOME=str(codex), TERM='xterm-256color',
-                           EXPECT_FAST='1' if fast else '0',
+                           EXPECT_FAST='1' if fast else '0', FAST_PROBE_PATH=str(root / 'fast-state.json'),
                            CODEX_STATEBAR_STATUS_COMMAND=json.dumps([__import__('sys').executable, str(renderer)]))
         pid, master = pty.fork()
         if pid == 0:
@@ -69,7 +71,7 @@ print("AURORA_MODE_LINE")
         try:
             while time.monotonic() - started < 30:
                 if (expect_native and time.monotonic() - started > 5
-                        and b'gpt-ui-probe' in ANSI.sub(b'', captured)):
+                        and b'6.1' in ANSI.sub(b'', captured)):
                     assert b'AURORA_LINE_ONE' not in captured
                     return {'native_baseline': True, 'isolated_auth': True}
                 if not select.select([master], [], [], 0.2)[0]:
@@ -102,7 +104,8 @@ print("AURORA_MODE_LINE")
                         os.kill(pid, signal.SIGWINCH)
                         resized = True
             plain = ANSI.sub(b'', captured).decode('utf-8', 'replace')
-            raise AssertionError(f'footer acceptance failed (embedded={embedded}, resized={resized}): {plain[-4000:]}')
+            observed = (root / 'fast-state.json').read_text() if (root / 'fast-state.json').exists() else 'no payload'
+            raise AssertionError(f'footer acceptance failed (embedded={embedded}, resized={resized}, expected_fast={fast}, observed={observed}): {plain[-4000:]}')
         finally:
             try:
                 os.write(master, b'\x03\x03')
