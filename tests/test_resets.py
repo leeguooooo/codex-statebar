@@ -7,6 +7,8 @@ import pytest
 from codex_statebar import config, i18n, resets
 
 NOW = 1792936800
+# conftest blanks reset_line for renderer tests; keep the real one here.
+REAL_RESET_LINE = resets.reset_line
 
 
 def stamp(offset):
@@ -166,8 +168,9 @@ def test_core_integration_is_optional_and_failure_isolated(monkeypatch, capsys, 
         "rate_limit_7d_pct": 20, "rate_limit_7d_resets_at": NOW+86400,
         "model": {"id": "codex", "display_name": "Codex"}})
     calls = []
-    def line(lang):
+    def line(lang, quota=None):
         calls.append(lang)
+        assert quota["rate_limit_7d_resets_at"] == NOW+86400
         if broken:
             raise OSError("cache unavailable")
         return "PUBLIC_RESET_SENTINEL"
@@ -179,3 +182,57 @@ def test_core_integration_is_optional_and_failure_isolated(monkeypatch, capsys, 
     if enabled:
         assert calls == ["ja"]
     assert output.strip()
+
+
+def quota(pct5, reset5, pct7, reset7):
+    return {"rate_limit_pct": pct5, "rate_limit_resets_at": reset5,
+            "rate_limit_7d_pct": pct7, "rate_limit_7d_resets_at": reset7}
+
+
+def test_local_reset_overrides_inaccurate_scheduled_countdown():
+    announced = {"status": "scheduled", "announced_at": stamp(-3600), "scheduled_for": stamp(4620)}
+    value = entry(scheduled_reset=announced)
+    assert resets.observe(quota(60, NOW + 3600, 70, NOW + 3 * 86400), NOW) is None
+    # The announcement said 1h17m, but the account's windows restarted now.
+    detected = resets.observe(quota(0, NOW + 5 * 3600 + 60, 0, NOW + 7 * 86400 + 60), NOW + 60)
+    assert detected == NOW + 60
+    output = resets.status_text(value, "zh", NOW + 180, detected)
+    assert output == "✓ 额度已重置 · 本机实测 2分钟前"
+    # Detection persists across renders while the API still says "scheduled".
+    again = resets.observe(quota(1, NOW + 5 * 3600 + 60, 0, NOW + 7 * 86400 + 60), NOW + 4 * 3600)
+    assert again == detected
+    assert "额度已重置" in resets.status_text(value, "zh", NOW + 4 * 3600, again)
+    # Once upstream resolves the announcement, normal history returns.
+    done = entry(latest_reset={"announced_at": stamp(-3600), "reset_type": "regular"})
+    done["fetched_at"] = NOW + 4 * 3600
+    assert resets.status_text(done, "zh", NOW + 4 * 3600, again) == "↻ 官方重置 · 5小时前"
+
+
+def test_natural_rollover_and_stale_sessions_are_not_resets():
+    resets.observe(quota(80, NOW + 60, 30, NOW + 86400), NOW)
+    # The 5h window ended on schedule: a new window is not an early reset.
+    assert resets.observe(quota(2, NOW + 5 * 3600 + 120, 31, NOW + 86400), NOW + 120) is None
+    # Another terminal still reporting the previous window is ignored.
+    assert resets.observe(quota(80, NOW + 60, 30, NOW + 86400), NOW + 130) is None
+    # Usage growing within the same window, and unknown windows, are ignored.
+    assert resets.observe(quota(5, NOW + 5 * 3600 + 180, 35, NOW + 86400 + 30), NOW + 200) is None
+    assert resets.observe(quota(None, None, None, None), NOW + 300) is None
+
+
+def test_detected_reset_forces_refresh_and_renders_prominently(monkeypatch):
+    from codex_statebar.cache import atomic_write_text
+    from codex_statebar.styles import render_reset_segment
+    from codex_statebar.themes import get_theme
+    atomic_write_text(resets.root() / "resets.json", json.dumps(
+        {"data": {}, "fetched_at": NOW, "checked_at": NOW}))
+    calls = []
+    monkeypatch.setattr(resets.subprocess, "Popen", lambda *a, **kw: calls.append(a))
+    monkeypatch.setattr(resets.time, "time", lambda: NOW + 10)
+    REAL_RESET_LINE("en", quota=quota(50, NOW + 3600, 50, NOW + 86400))
+    assert calls == []  # within TTL
+    monkeypatch.setattr(resets.time, "time", lambda: NOW + 20)
+    line = REAL_RESET_LINE("en", quota=quota(0, NOW + 5 * 3600, 0, NOW + 7 * 86400))
+    assert line == "✓ Quota reset · seen 1m ago"
+    assert len(calls) == 1
+    seg = render_reset_segment(line, theme=get_theme("graphite"))
+    assert "\x1b[1m" in seg and "✓ Quota reset seen 1m ago" in seg

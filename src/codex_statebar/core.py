@@ -1224,7 +1224,10 @@ def main(json_output: bool = False,
     if cfg.show_resets and not json_output and not no_quota:
         try:
             from .resets import reset_line
-            mode_kwargs["reset_text"] = reset_line(ui_lang(cfg.lang))
+            mode_kwargs["reset_text"] = reset_line(ui_lang(cfg.lang), quota={
+                key: stdin_data.get(key) for key in (
+                    "rate_limit_pct", "rate_limit_resets_at",
+                    "rate_limit_7d_pct", "rate_limit_7d_resets_at")})
         except Exception:
             pass  # Optional public data must never blank the account status.
     if cfg.show_ocs:

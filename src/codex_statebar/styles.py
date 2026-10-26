@@ -825,11 +825,17 @@ def render_ocs_line_aurora(ocs_text: str, unread, lan, *, theme: Theme,
 
 def render_reset_segment(reset_text: str, *, theme: Theme, quiet: bool = False,
                          use_color: bool = True) -> str:
-    """`↻ 官方重置 8小时前`: labels dim, values base (aurora) or all muted."""
-    body = reset_text[2:] if reset_text.startswith("↻ ") else reset_text
+    """`↻ 官方重置 8小时前`: labels dim, values base (aurora) or all muted.
+
+    `✓ …` is a reset seen in the account's own quota; it must stand out.
+    """
+    glyph = "✓" if reset_text.startswith("✓ ") else "↻"
+    body = reset_text[2:] if reset_text[:2] in ("↻ ", "✓ ") else reset_text
     pieces = body.split(" · ")
     if not use_color:
-        return "↻ " + " ".join(pieces)
+        return f"{glyph} " + " ".join(pieces)
+    if glyph == "✓":
+        return f"{BOLD}{_fg(theme.s_ok)}✓ {' '.join(pieces)}{RESET}"
     q = _aurora_quiet(theme)
     BASE, DIM, EDGE = q["BASE"], q["DIM"], q["EDGE"]
     # Templates alternate `label · value`, so odd pieces are the values.
