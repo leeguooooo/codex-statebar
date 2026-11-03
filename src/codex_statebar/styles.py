@@ -1349,9 +1349,16 @@ def render(style: str, **kwargs) -> str:
         from .picker import hint_text
         out += "\n" + hint_text(ui_lang)
     if ocs_text and style in _AURORA_FAMILY:
-        out += "\n" + render_ocs_line_aurora(ocs_text, ocs_unread, ocs_lan,
+        ocs_line = render_ocs_line_aurora(ocs_text, ocs_unread, ocs_lan,
+                                          theme=theme, use_color=use_color, lang=ui_lang)
+        if max_width and visible_width(ocs_line) > max_width:
+            # Narrow pane: a full UUID can't fit; its 8-hex prefix still identifies it.
+            ocs_line = render_ocs_line_aurora(_short_ocs_id(ocs_text), ocs_unread, ocs_lan,
                                               theme=theme, use_color=use_color, lang=ui_lang)
+        out += "\n" + ocs_line
     elif ocs_text:
+        if max_width and len(ocs_text) + 4 > max_width:
+            ocs_text = _short_ocs_id(ocs_text)
         line = f"ocs {ocs_text}"
         if ocs_unread:
             line += f" · ✉{ocs_unread}"
@@ -1403,7 +1410,53 @@ def render(style: str, **kwargs) -> str:
             for agline in render_agent_lines(
                     activity.agents, theme=theme, use_color=use_color):
                 out = out + "\n" + agline
-    return clip_lines(out, max_width)
+    return clip_lines(_wrap_lines(out, max_width), max_width)
+
+
+_UUID_TAIL_RE = _re.compile(r"\b([0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b")
+
+
+def _short_ocs_id(text: str) -> str:
+    return _UUID_TAIL_RE.sub(r"\1", text)
+
+
+_WRAP_SEPS = ("  ·  ", " · ")
+
+
+def _wrap_lines(text: str, max_width) -> str:
+    """Break over-wide lines at their ` · ` separators instead of clipping.
+
+    Continuation rows are indented two cells so they read as part of the
+    line above; only a single piece that alone is too wide gets clipped later.
+    """
+    if not max_width or max_width <= 0 or not text:
+        return text
+    from ._display import visible_width
+    out = []
+    for line in text.split("\n"):
+        if visible_width(line) <= max_width:
+            out.append(line)
+            continue
+        sep = next((s for s in _WRAP_SEPS if s in line), None)
+        if sep is None:
+            out.append(line)
+            continue
+        pieces = line.split(sep)
+        # A colored separator leaves an open SGR on the left piece; close it.
+        pieces = [p + RESET if "\x1b[" in p else p for p in pieces]
+        rows, row = [], ""
+        for piece in pieces:
+            if not _strip(piece).strip():
+                continue
+            if row and visible_width(row + sep + piece) > max_width:
+                rows.append(row)
+                row = "  " + piece.lstrip()
+            else:
+                row = row + sep + piece if row else piece
+        if row:
+            rows.append(row)
+        out.extend(rows)
+    return "\n".join(out)
 
 
 def list_styles() -> list[str]:

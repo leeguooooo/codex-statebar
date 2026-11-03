@@ -95,3 +95,17 @@ def test_codex_can_hide_five_hour_window_in_every_style(style):
                  use_color=False, max_width=40)
     assert '5h' not in out.lower() and '42' not in out
     assert '18' in out and 'gpt-test' in out
+
+
+@pytest.mark.parametrize('style', ['aurora', 'classic'])
+def test_narrow_ocs_line_shortens_uuid_and_wraps(style):
+    out = render(style, msgs_pct=None, weekly_pct=8, reset_5h=None,
+                 reset_7d='1d20h', model='GPT-6.1 Terra', ctx_pct=0,
+                 show_five_hour=False, use_color=False, max_width=40,
+                 ocs_text='codex-01a1a282-2256-7a12-a614-ac570cef9fdf',
+                 ocs_unread=3,
+                 ocs_lan={'running': True, 'peers': [('mac', True)]})
+    assert '…' not in out
+    assert 'codex-01a1a282' in out and 'ac570cef9fdf' not in out
+    assert 'mac' in out
+    assert all(visible_width(line) <= 40 for line in out.splitlines())
