@@ -1421,6 +1421,7 @@ def _short_ocs_id(text: str) -> str:
 
 
 _WRAP_SEPS = ("  ·  ", " · ")
+MAX_STATUS_ROWS = 6  # patches/codex-*-external-status-line.patch MAX_ROWS
 
 
 def _wrap_lines(text: str, max_width) -> str:
@@ -1432,8 +1433,12 @@ def _wrap_lines(text: str, max_width) -> str:
     if not max_width or max_width <= 0 or not text:
         return text
     from ._display import visible_width
+    lines = text.split("\n")
+    # Codex shows at most MAX_STATUS_ROWS rows; a wrap that pushes later lines
+    # (mode, activity) off the bottom is worse than dropping the trailing pieces.
+    budget = MAX_STATUS_ROWS - len(lines)
     out = []
-    for line in text.split("\n"):
+    for line in lines:
         if visible_width(line) <= max_width:
             out.append(line)
             continue
@@ -1455,6 +1460,9 @@ def _wrap_lines(text: str, max_width) -> str:
                 row = row + sep + piece if row else piece
         if row:
             rows.append(row)
+        if len(rows) - 1 > budget:
+            rows = rows[:1]
+        budget -= len(rows) - 1
         out.extend(rows)
     return "\n".join(out)
 

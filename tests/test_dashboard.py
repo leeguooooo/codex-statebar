@@ -109,3 +109,17 @@ def test_narrow_ocs_line_shortens_uuid_and_wraps(style):
     assert 'codex-01a1a282' in out and 'ac570cef9fdf' not in out
     assert 'mac' in out
     assert all(visible_width(line) <= 40 for line in out.splitlines())
+
+
+def test_narrow_wrap_never_pushes_mode_line_past_codex_row_cap():
+    out = render('aurora', msgs_pct=None, weekly_pct=8, reset_5h=None,
+                 reset_7d='1d19h', model='GPT-6.1 Terra', ctx_pct=0,
+                 show_five_hour=False, bypass=True, use_color=False,
+                 max_width=48, reset_text='↻ 储备重置 · 1天前', cwd_text='null',
+                 ocs_text='codex-01a1a2b1-2256-7a12-a614-ac570cef9fdf',
+                 ocs_lan={'running': True,
+                          'peers': [('win', False), ('leos-macbook-pro', False)]},
+                 mode_show=True, mode_effort='medium', mode_fast=False)
+    lines = out.splitlines()
+    assert len(lines) <= 6
+    assert 'effort:medium' in lines[-1]
