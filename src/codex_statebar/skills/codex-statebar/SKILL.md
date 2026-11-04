@@ -29,7 +29,7 @@ Use `cxs` for Codex CLI status-bar requests. Prefer commands over editing
 
 The managed `codex` launcher automatically enables the embedded multi-line
 renderer when the installed patched Codex is at least as new as the official
-CLI. The patch targets Codex 0.164.0. `cxs doctor` reports the selected binary
+CLI. The patch targets Codex 0.166.0. `cxs doctor` reports the selected binary
 and whether its rich command hook is available.
 
 `cxs --setup` keeps native `[tui].status_line` items as the fallback. The
