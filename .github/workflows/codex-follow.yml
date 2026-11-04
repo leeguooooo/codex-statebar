@@ -23,6 +23,11 @@ concurrency:
   group: codex-follow
   cancel-in-progress: false
 
+# libgit2 drops long submodule clones (v8 → chromium icu); system git retries cleanly.
+env:
+  CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+  CARGO_NET_RETRY: "10"
+
 jobs:
   follow:
     runs-on: ubuntu-24.04

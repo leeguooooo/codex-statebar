@@ -4,6 +4,11 @@ on:
 permissions:
   contents: read
   actions: read
+# libgit2 drops long submodule clones (v8 → chromium icu); system git retries cleanly.
+env:
+  CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+  CARGO_NET_RETRY: "10"
+
 jobs:
   cross-build:
     runs-on: macos-15
