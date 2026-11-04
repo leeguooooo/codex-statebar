@@ -1,0 +1,159 @@
+name: Follow upstream Codex
+
+# Daily: when openai/codex ships a newer stable release, port the status-line
+# patch, compile-check it, bump cxs, tag, build the release and publish it.
+# If the patch no longer applies or compiles, open an issue instead.
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+    inputs:
+      codex_version:
+        description: Force a specific Codex version (e.g. 0.167.0); empty = latest stable
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+  actions: write
+  issues: write
+
+concurrency:
+  group: codex-follow
+  cancel-in-progress: false
+
+jobs:
+  follow:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Compare versions
+        id: ver
+        env:
+          FORCED: ${{ inputs.codex_version }}
+        run: |
+          cur=$(sed -n 's/^VERSION="\${CODEX_VERSION:-\([0-9.]*\)}"$/\1/p' scripts/build-patched-codex.sh)
+          if [ -n "$FORCED" ]; then
+            new="$FORCED"
+          else
+            new=$(gh release list -R openai/codex --exclude-drafts --exclude-pre-releases -L 30 \
+                    --json tagName,isLatest -q '.[]|select(.isLatest)|.tagName' | sed 's/^rust-v//')
+          fi
+          echo "current=$cur upstream=$new"
+          newer=$(python3 -c "import sys;t=lambda v:tuple(int(x) for x in v.split('.'));print('yes' if t(sys.argv[2])>t(sys.argv[1]) else 'no')" "$cur" "$new" 2>/dev/null || echo no)
+          echo "cur=$cur" >> "$GITHUB_OUTPUT"
+          echo "new=$new" >> "$GITHUB_OUTPUT"
+          echo "newer=$newer" >> "$GITHUB_OUTPUT"
+
+      - name: Port patch
+        id: port
+        if: steps.ver.outputs.newer == 'yes'
+        env:
+          CUR: ${{ steps.ver.outputs.cur }}
+          NEW: ${{ steps.ver.outputs.new }}
+        run: |
+          set -euo pipefail
+          src="$RUNNER_TEMP/codex"
+          mkdir -p "$src"
+          curl -fsSL "https://github.com/openai/codex/archive/refs/tags/rust-v$NEW.tar.gz" \
+            | tar -xz -C "$src" --strip-components=1
+          git -C "$src" init -q
+          git -C "$src" add -A
+          git -C "$src" -c user.name=ci -c user.email=ci@local commit -qm base
+          if ! patch -d "$src" -p1 --forward --no-backup-if-mismatch \
+                < "patches/codex-$CUR-external-status-line.patch" > "$RUNNER_TEMP/patch.log" 2>&1; then
+            cat "$RUNNER_TEMP/patch.log"
+            echo "failed=apply" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          find "$src" -name '*.orig' -o -name '*.rej' | xargs -r rm -f
+          git -C "$src" add -A
+          git -C "$src" diff --cached > "patches/codex-$NEW-external-status-line.patch"
+          echo "src=$src" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.ver.outputs.newer == 'yes'
+        with:
+          toolchain: 1.99.1
+
+      - name: Compile check patched TUI
+        if: steps.ver.outputs.newer == 'yes'
+        env:
+          CARGO_BUILD_JOBS: 4
+        run: |
+          cargo check -p codex-tui --manifest-path "${{ steps.port.outputs.src }}/codex-rs/Cargo.toml"
+
+      - name: Bump, commit and tag
+        id: tag
+        if: steps.ver.outputs.newer == 'yes'
+        env:
+          CUR: ${{ steps.ver.outputs.cur }}
+          NEW: ${{ steps.ver.outputs.new }}
+        run: |
+          set -euo pipefail
+          esc="${CUR//./\\.}"
+          for f in .github/workflows/release-binaries.yml \
+                   .github/workflows/patched-codex-candidate.yml \
+                   .github/workflows/codex-intel-cross.yml \
+                   scripts/build-patched-codex.sh scripts/verify_embedded_codex.py \
+                   src/codex_statebar/skills/codex-statebar/SKILL.md \
+                   README.md README.zh-CN.md README.html README.zh-CN.html; do
+            sed -i "s/$esc/$NEW/g" "$f"
+          done
+          old=$(sed -n 's/^version = "\(.*\)"$/\1/p' pyproject.toml | head -1)
+          next=$(python3 -c "import sys;a=sys.argv[1].split('.');a[-1]=str(int(a[-1])+1);print('.'.join(a))" "$old")
+          sed -i "s/^version = \"$old\"/version = \"$next\"/" pyproject.toml
+          sed -i "s/v = \"$old\"/v = \"$next\"/" src/codex_statebar/__init__.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A patches .github scripts src README.md README.zh-CN.md README.html README.zh-CN.html pyproject.toml
+          git commit -qm "feat(codex): 补丁自动跟进 Codex $NEW 并发布 v$next"
+          git tag "v$next"
+          git push origin main "v$next"
+          echo "tag=v$next" >> "$GITHUB_OUTPUT"
+
+      # Tags pushed with GITHUB_TOKEN don't trigger workflows; dispatch explicitly.
+      - name: Build release
+        if: steps.tag.outputs.tag != ''
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh workflow run release-binaries.yml --ref "$TAG"
+          for _ in $(seq 1 30); do
+            sleep 10
+            id=$(gh run list -w release-binaries.yml -b "$TAG" -L 1 --json databaseId -q '.[0].databaseId')
+            [ -n "$id" ] && break
+          done
+          gh run watch "$id" --exit-status --interval 60
+
+      - name: Publish release
+        if: steps.tag.outputs.tag != ''
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          CUR: ${{ steps.ver.outputs.cur }}
+          NEW: ${{ steps.ver.outputs.new }}
+        run: |
+          prev=$(gh release list -L 1 --exclude-drafts --json tagName -q '.[0].tagName')
+          printf '状态栏补丁自动跟进 Codex %s（原 %s）。\n\n**Full Changelog**: https://github.com/%s/compare/%s...%s\n' \
+            "$NEW" "$CUR" "$GITHUB_REPOSITORY" "$prev" "$TAG" > notes.md
+          gh release edit "$TAG" --title "$TAG — 跟进 Codex $NEW" --notes-file notes.md --draft=false --latest
+
+      - name: Open issue on failure
+        if: failure() && steps.ver.outputs.newer == 'yes'
+        env:
+          NEW: ${{ steps.ver.outputs.new }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="自动跟进 Codex $NEW 失败"
+          if [ -z "$(gh issue list --state open --search "$title in:title" --json number -q '.[0].number')" ]; then
+            gh issue create --title "$title" --body "补丁移植、编译或发版失败，需要人工处理：$RUN_URL"
+          fi
