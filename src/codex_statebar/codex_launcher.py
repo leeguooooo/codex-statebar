@@ -586,6 +586,18 @@ def launch(args: Sequence[str]) -> int:
     if os.environ.get(_VERSION_PROBE_ENV):
         print("codex-statebar: refused recursive Codex version probe", file=sys.stderr)
         return 126
+    if list(args) == ["update"]:
+        # Codex's own updater can't recognise this install and tells users to
+        # reinstall by hand, which overwrites the launcher. Update ours instead.
+        from .updater import upgrade_current_install
+        ok, message = upgrade_current_install()
+        print(message, file=sys.stdout if ok else sys.stderr)
+        return 0 if ok else 1
+    try:
+        from .guard import ensure_installed
+        ensure_installed()
+    except Exception:
+        pass  # Self-healing is best effort; never block starting Codex.
     decision = inspect_install()
     selected = decision.selected
     if selected is None:

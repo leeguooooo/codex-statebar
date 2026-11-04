@@ -116,6 +116,11 @@ def main():
     if lock is None:
         return 0
     try:
+        try:
+            from .guard import ensure_installed
+            ensure_installed()
+        except Exception:
+            pass
         run()
         return 0
     except Exception as exc:

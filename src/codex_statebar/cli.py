@@ -231,6 +231,9 @@ def main():
         if module == "codex_statebar._ip_risk_refresh":
             from . import _ip_risk_refresh
             return _ip_risk_refresh.main()
+    if len(sys.argv) >= 2 and sys.argv[1] == "_guard":
+        from .guard import run as run_guard
+        return run_guard()
     if len(sys.argv) >= 2 and sys.argv[1] == "_launch-codex":
         from .codex_launcher import launch
         return launch(sys.argv[2:])
@@ -561,6 +564,11 @@ Integration:
 
     if args.setup:
         from .setup import run_setup
+        try:
+            from .guard import ensure_installed
+            ensure_installed()
+        except Exception:
+            pass
         # Daemon (fast) mode is the default since 3.6.0; --inline opts out.
         # Keep the legacy --fast flag accepted (no-op) so existing scripts work.
         fast = not args.inline

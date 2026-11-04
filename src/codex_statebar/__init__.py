@@ -15,7 +15,7 @@ def __getattr__(name):
         try:
             v = _metadata.version("codex-statebar")
         except _metadata.PackageNotFoundError:
-            v = "0.5.9"
+            v = "0.5.10"
         globals()["__version__"] = v  # cache
         return v
     if name == "main":
