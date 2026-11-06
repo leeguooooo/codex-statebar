@@ -44,7 +44,7 @@ requires_openai_auth = false
         renderer = root / 'renderer.py'
         renderer.write_text('''import json, os, sys
 data = json.load(sys.stdin)
-assert data["codex_version"] == "0.166.0"
+assert data["codex_version"] == "0.167.0"
 with open(os.environ["FAST_PROBE_PATH"], "w") as probe:
     json.dump({"fast_mode": data.get("fast_mode")}, probe)
 assert data["fast_mode"] is (os.environ["EXPECT_FAST"] == "1")

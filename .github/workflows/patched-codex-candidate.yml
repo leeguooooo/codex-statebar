@@ -68,9 +68,9 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            build/codex-0.166.0/target
-          key: codex-0.166.0-${{ matrix.target }}-${{ hashFiles('patches/codex-0.166.0*', 'scripts/build-patched-codex.sh') }}
-          restore-keys: codex-0.166.0-${{ matrix.target }}-
+            build/codex-0.167.0/target
+          key: codex-0.167.0-${{ matrix.target }}-${{ hashFiles('patches/codex-0.167.0*', 'scripts/build-patched-codex.sh') }}
+          restore-keys: codex-0.167.0-${{ matrix.target }}-
       - name: Build or recover compiled binary
         id: native_build
         env:
@@ -79,9 +79,9 @@ jobs:
         run: |
           if [ "$REUSE" = "true" ]; then
             test "$CACHE_HIT" = "true"
-            test -x build/codex-0.166.0/target/release/codex
+            test -x build/codex-0.167.0/target/release/codex
             mkdir -p dist
-            cp build/codex-0.166.0/target/release/codex dist/codex-cxs
+            cp build/codex-0.167.0/target/release/codex dist/codex-cxs
           else
             ./scripts/build-patched-codex.sh
           fi
@@ -116,7 +116,7 @@ jobs:
         run: |
           python3 - <<'PYSTOP'
           import os, shlex, signal, subprocess, time
-          scope = os.getcwd() + '/build/codex-0.166.0/'
+          scope = os.getcwd() + '/build/codex-0.167.0/'
           for sig in (signal.SIGTERM, signal.SIGKILL):
               for row in subprocess.check_output(['ps', '-axo', 'pid=,command='], text=True).splitlines():
                   bits = row.strip().split(None, 1)
@@ -134,5 +134,5 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            build/codex-0.166.0/target
-          key: codex-0.166.0-${{ matrix.target }}-${{ hashFiles('patches/codex-0.166.0*', 'scripts/build-patched-codex.sh') }}
+            build/codex-0.167.0/target
+          key: codex-0.167.0-${{ matrix.target }}-${{ hashFiles('patches/codex-0.167.0*', 'scripts/build-patched-codex.sh') }}
