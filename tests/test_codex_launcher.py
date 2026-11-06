@@ -72,6 +72,46 @@ def test_launcher_falls_back_to_official_when_patched_binary_is_missing(tmp_path
     assert "not installed" in decision.reason
 
 
+def _standalone(codex_home: Path, version: str) -> Path:
+    release = codex_home / "packages" / "standalone" / "releases" / f"{version}-test"
+    (release / "bin").mkdir(parents=True)
+    _binary(release / "bin" / "codex", version)
+    (codex_home / "packages" / "standalone" / "current").symlink_to(release)
+    return codex_home / "packages" / "standalone" / "current" / "bin" / "codex"
+
+
+def test_newer_standalone_auto_update_wins_when_not_on_path(tmp_path, monkeypatch):
+    managed = tmp_path / "managed"
+    official_dir = tmp_path / "official"
+    managed.mkdir()
+    official_dir.mkdir()
+    _binary(managed / "codex-cxs", "0.166.0")
+    _binary(official_dir / "codex", "0.164.0")
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex-home"))
+    standalone = _standalone(tmp_path / "codex-home", "0.167.0")
+
+    decision = codex_launcher.inspect_install(
+        managed_dir=managed,
+        path_value=str(official_dir),
+    )
+
+    assert decision.selected is decision.official
+    assert decision.selected.path == standalone
+    assert decision.selected.version_text == "codex-cli 0.167.0"
+
+
+def test_older_standalone_install_keeps_patched_build(tmp_path, monkeypatch):
+    managed = tmp_path / "managed"
+    managed.mkdir()
+    _binary(managed / "codex-cxs", "0.166.0")
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex-home"))
+    _standalone(tmp_path / "codex-home", "0.166.0")
+
+    decision = codex_launcher.inspect_install(managed_dir=managed, path_value="")
+
+    assert decision.selected is decision.patched
+
+
 def test_stable_release_sorts_after_same_version_prerelease():
     assert codex_launcher._version_key("codex-cli 0.146.0") > (
         codex_launcher._version_key("codex-cli 0.146.0-alpha.3")

@@ -8,6 +8,7 @@ def _isolate_home(tmp_path, monkeypatch):
     home.mkdir()
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.delenv("CODEX_HOME", raising=False)
     monkeypatch.setenv("CODEX_STATEBAR_NO_UPDATE", "1")
 
 

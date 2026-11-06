@@ -155,6 +155,11 @@ def _managed_dir() -> Path:
     return Path(sys.executable).absolute().parent
 
 
+def _standalone_bin_dir() -> Path:
+    codex_home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+    return codex_home.expanduser() / "packages" / "standalone" / "current" / "bin"
+
+
 def _official_paths(
     path_value: Optional[str],
     managed_dir: Path,
@@ -165,10 +170,13 @@ def _official_paths(
     search_path = (
         path_value if path_value is not None else os.environ.get("PATH", "")
     )
-    for entry in search_path.split(os.pathsep):
-        if not entry:
-            continue
-        candidate = Path(entry).expanduser().absolute() / executable
+    entries = [Path(entry) for entry in search_path.split(os.pathsep) if entry]
+    # Codex's standalone installer (and its auto-update) puts new releases here
+    # and links ~/.local/bin/codex to them. The guard restores our launcher over
+    # that link, so the release would otherwise be invisible to routing.
+    entries.append(_standalone_bin_dir())
+    for entry in entries:
+        candidate = entry.expanduser().absolute() / executable
         if not candidate.is_file() or not os.access(candidate, os.X_OK):
             continue
         if _is_app_embedded_binary(candidate):
