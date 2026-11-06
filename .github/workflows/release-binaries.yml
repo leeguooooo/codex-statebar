@@ -114,36 +114,49 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-15-intel
+          # Intel is cross-compiled on the faster arm64 runner and verified
+          # natively by verify-intel-codex below.
+          - os: macos-15
             target: macos-x86_64
+            cross: x86_64-apple-darwin
+            jobs: 3
           - os: macos-15
             target: macos-arm64
+            jobs: 3
           - os: ubuntu-24.04
             target: linux-x86_64
+            jobs: 4
           - os: ubuntu-24.04-arm
             target: linux-arm64
+            jobs: 4
     runs-on: ${{ matrix.os }}
     timeout-minutes: 180
     env:
-      CARGO_BUILD_JOBS: 2
+      CARGO_BUILD_JOBS: ${{ matrix.jobs }}
       CARGO_PROFILE_RELEASE_LTO: "false"
       CARGO_PROFILE_RELEASE_DEBUG: "0"
       CODEX_RUN_PATCH_TESTS: "1"
+      CODEX_CARGO_TARGET: ${{ matrix.cross }}
+      # Version-independent so a new Codex release starts from the previous
+      # release's dependency artifacts instead of a cold build.
+      CARGO_TARGET_DIR: ${{ github.workspace }}/build/target
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.99.1
+          targets: ${{ matrix.cross }}
       - uses: actions/cache/restore@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            build/codex-0.167.0/target
-          key: codex-0.167.0-${{ matrix.target }}-${{ hashFiles('patches/codex-0.167.0*', 'scripts/build-patched-codex.sh') }}
-          restore-keys: codex-0.167.0-${{ matrix.target }}-
+            build/target
+          key: codex-${{ matrix.target }}-${{ hashFiles('patches/codex-0.167.0*', 'scripts/build-patched-codex.sh') }}
+          restore-keys: codex-${{ matrix.target }}-
       - run: ./scripts/build-patched-codex.sh
-      - run: python3 scripts/verify_embedded_codex.py dist/codex-cxs
+      - if: ${{ !matrix.cross }}
+        run: python3 scripts/verify_embedded_codex.py dist/codex-cxs
       - shell: bash
         run: |
           mkdir patched-package
@@ -156,23 +169,43 @@ jobs:
           path: |
             codex-cxs-${{ matrix.target }}.tar.gz
             codex-cxs-${{ matrix.target }}.tar.gz.sha256
+      - name: Keep only dependency artifacts in the cache
+        if: always()
+        run: python3 scripts/prune_codex_target.py build/codex-0.167.0/source/codex-rs/Cargo.toml build/target || true
       - uses: actions/cache/save@v4
         if: always()
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            build/codex-0.167.0/target
-          key: codex-0.167.0-${{ matrix.target }}-${{ hashFiles('patches/codex-0.167.0*', 'scripts/build-patched-codex.sh') }}
+            build/target
+          key: codex-${{ matrix.target }}-${{ hashFiles('patches/codex-0.167.0*', 'scripts/build-patched-codex.sh') }}
+
+  verify-intel-codex:
+    needs: build-patched-codex
+    runs-on: macos-15-intel
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: codex-cxs-macos-x86_64
+          path: intel
+      - run: |
+          cd intel && shasum -a 256 -c codex-cxs-macos-x86_64.tar.gz.sha256
+          tar -xzf codex-cxs-macos-x86_64.tar.gz
+          ./codex-cxs --version
+      - run: python3 scripts/verify_embedded_codex.py intel/codex-cxs
 
   release:
-    needs: [find-patched-codex, build, build-patched-codex]
+    needs: [find-patched-codex, build, build-patched-codex, verify-intel-codex]
     if: >-
       always() && !inputs.build_cli_only &&
       needs.find-patched-codex.result == 'success' &&
       needs.build.result == 'success' &&
       (
-        needs.build-patched-codex.result == 'success' ||
+        (needs.build-patched-codex.result == 'success' &&
+         needs.verify-intel-codex.result == 'success') ||
         (
           needs.build-patched-codex.result == 'skipped' &&
           needs.find-patched-codex.outputs.source_tag != ''

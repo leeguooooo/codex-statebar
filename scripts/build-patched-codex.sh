@@ -61,12 +61,22 @@ if [[ "${CODEX_RUN_FULL_TUI_TESTS:-0}" == "1" ]]; then
     --target-dir "$CARGO_TARGET_DIR"
 fi
 
+# CODEX_CARGO_TARGET cross-compiles (e.g. x86_64-apple-darwin on an arm64 Mac,
+# much faster than the hosted Intel runners).
+target_args=()
+release_dir="$CARGO_TARGET_DIR/release"
+if [[ -n "${CODEX_CARGO_TARGET:-}" ]]; then
+  target_args=(--target "$CODEX_CARGO_TARGET")
+  release_dir="$CARGO_TARGET_DIR/$CODEX_CARGO_TARGET/release"
+fi
+
 cargo build --locked \
   --manifest-path "$SOURCE_DIR/codex-rs/Cargo.toml" \
   --package codex-cli \
   --target-dir "$CARGO_TARGET_DIR" \
+  "${target_args[@]+"${target_args[@]}"}" \
   --release
 
-cp "$CARGO_TARGET_DIR/release/codex" "$OUTPUT_DIR/codex-cxs"
+cp "$release_dir/codex" "$OUTPUT_DIR/codex-cxs"
 chmod +x "$OUTPUT_DIR/codex-cxs"
 echo "built $OUTPUT_DIR/codex-cxs"

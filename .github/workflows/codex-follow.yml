@@ -1,12 +1,12 @@
 name: Follow upstream Codex
 
-# Daily: when openai/codex ships a newer stable release, port the status-line
+# Every 2 hours: when openai/codex ships a newer stable release, port the status-line
 # patch, compile-check it, bump cxs, tag, build the release and publish it.
 # If the patch no longer applies or compiles, open an issue instead.
 
 on:
   schedule:
-    - cron: "17 2 * * *"
+    - cron: "17 */2 * * *"
   workflow_dispatch:
     inputs:
       codex_version:
@@ -107,7 +107,6 @@ jobs:
           esc="${CUR//./\\.}"
           for f in .github/workflows/release-binaries.yml \
                    .github/workflows/patched-codex-candidate.yml \
-                   .github/workflows/codex-intel-cross.yml \
                    scripts/build-patched-codex.sh scripts/verify_embedded_codex.py \
                    src/codex_statebar/skills/codex-statebar/SKILL.md \
                    README.md README.zh-CN.md README.html README.zh-CN.html; do
