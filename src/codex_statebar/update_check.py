@@ -7,6 +7,9 @@ from pathlib import Path
 INTERVAL_S = 6 * 3600
 # The patched Codex is older than the official one: a matching release is due.
 BEHIND_INTERVAL_S = 30 * 60
+# time.time() is coarser than file timestamps on Windows, so a marker written a
+# moment ago can read as slightly in the future. Only a real clock jump rechecks.
+_CLOCK_SKEW_S = 60
 
 
 def _root():
@@ -37,7 +40,7 @@ def schedule(interval=INTERVAL_S):
     marker = _root() / 'last_update_check'
     now = time.time()
     try:
-        if 0 <= now - marker.stat().st_mtime < interval:
+        if -_CLOCK_SKEW_S <= now - marker.stat().st_mtime < interval:
             return
     except OSError:
         pass
@@ -46,7 +49,7 @@ def schedule(interval=INTERVAL_S):
         return
     try:
         try:
-            if 0 <= now - marker.stat().st_mtime < interval:
+            if -_CLOCK_SKEW_S <= now - marker.stat().st_mtime < interval:
                 return
         except OSError:
             pass
