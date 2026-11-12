@@ -171,7 +171,7 @@ def run() -> int:
         _line("config file", CONFIG_PATH)
         disabled = os.environ.get("CODEX_STATEBAR_NO_UPDATE", "").lower() in ("1", "true", "yes")
         _line("auto-upgrade", "off (environment)" if disabled else
-              ("on (GitHub Releases, every 6h)" if config.auto_upgrade else "check only"))
+              ("on (GitHub Releases, every 6h; every 30m while the patched Codex is behind)" if config.auto_upgrade else "check only"))
         from .styles import _update_hint
         latest = _update_hint()
         if latest:

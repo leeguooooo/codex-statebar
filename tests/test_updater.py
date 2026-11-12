@@ -445,3 +445,91 @@ def test_rate_limited_baseline_keeps_checksum_urls(monkeypatch):
     archive, checksum = updater._asset_urls(release, 'macos-arm64', 'codex-cxs')
     assert archive.endswith('/v0.3.0/codex-cxs-macos-arm64.tar.gz')
     assert checksum == archive + '.sha256'
+
+
+def _idle_guard_release(tmp_path, monkeypatch):
+    monkeypatch.setattr(codex_statebar, "__version__", "0.1.1", raising=False)
+
+    def archive(member, data):
+        payload = io.BytesIO()
+        with tarfile.open(fileobj=payload, mode="w:gz") as bundle:
+            info = tarfile.TarInfo(member)
+            info.size = len(data)
+            bundle.addfile(info, io.BytesIO(data))
+        return payload.getvalue()
+
+    assets, listed = {}, []
+    for binary, data in (("cxs", b"new-cxs"), ("codex-cxs", b"new-codex")):
+        blob = archive(binary, data)
+        assets[binary] = blob
+        assets[binary + ".sha"] = hashlib.sha256(blob).hexdigest().encode()
+        listed += [
+            {"name": f"{binary}-test.tar.gz", "browser_download_url": binary},
+            {"name": f"{binary}-test.tar.gz.sha256", "browser_download_url": binary + ".sha"},
+        ]
+    release = {"tag_name": "v0.1.2", "assets": listed}
+    cxs = tmp_path / "cxs"
+    cxs.write_bytes(b"old-cxs")
+    (tmp_path / "codex-cxs").write_bytes(b"old-codex")
+    monkeypatch.setattr(updater, "_target", lambda: "test")
+    monkeypatch.setattr(updater, "_destination", lambda: cxs)
+    monkeypatch.setattr(
+        updater, "_fetch",
+        lambda url: json_bytes(release) if url == updater.LATEST_API else assets[url],
+    )
+    return cxs
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows releases do not ship codex-cxs")
+def test_background_native_upgrade_waits_for_direct_sessions(tmp_path, monkeypatch):
+    cxs = _idle_guard_release(tmp_path, monkeypatch)
+    seen = []
+    monkeypatch.setattr(updater, "_native_in_use", lambda path: seen.append(path) or True)
+
+    ok, message = updater.upgrade_current_install(native_must_be_idle=True)
+
+    assert ok is True and "cxs upgrade" in message
+    assert seen == [tmp_path / "codex-cxs"]
+    assert cxs.read_bytes() == b"old-cxs"
+    assert (tmp_path / "codex-cxs").read_bytes() == b"old-codex"
+    assert not list(tmp_path.glob("*.new"))
+
+    monkeypatch.setattr(updater, "_native_in_use", lambda path: False)
+    ok, message = updater.upgrade_current_install(native_must_be_idle=True)
+    assert ok is True, message
+    assert cxs.read_bytes() == b"new-cxs"
+    assert (tmp_path / "codex-cxs").read_bytes() == b"new-codex"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows releases do not ship codex-cxs")
+def test_explicit_upgrade_ignores_running_sessions(tmp_path, monkeypatch):
+    cxs = _idle_guard_release(tmp_path, monkeypatch)
+    monkeypatch.setattr(updater, "_native_in_use", lambda path: pytest.fail("not consulted"))
+    assert updater.upgrade_current_install()[0]
+    assert (tmp_path / "codex-cxs").read_bytes() == b"new-codex"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows releases do not ship codex-cxs")
+def test_native_in_use_matches_only_the_managed_path(tmp_path, monkeypatch):
+    import subprocess
+    import time
+    binary = tmp_path / "codex-cxs"
+    binary.write_text("#!/bin/sh\nsleep 30\n")
+    binary.chmod(0o755)
+    assert updater._native_in_use(binary) is False
+    process = subprocess.Popen([str(binary)])
+    try:
+        deadline = time.time() + 5
+        while not updater._native_in_use(binary) and time.time() < deadline:
+            time.sleep(0.05)
+        assert updater._native_in_use(binary) is True
+        # An alias session runs another path and never blocks the upgrade.
+        assert updater._native_in_use(tmp_path / ".cxs-exec" / "1-2-3" / "codex") is False
+    finally:
+        process.kill()
+        process.wait()
+    monkeypatch.setattr(
+        updater.subprocess, "run",
+        lambda *a, **kw: (_ for _ in ()).throw(OSError("no ps")),
+    )
+    assert updater._native_in_use(binary) is True

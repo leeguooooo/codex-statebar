@@ -177,9 +177,13 @@ def test_background_update_does_not_swap_a_different_native_host(monkeypatch):
     binary = codex_launcher.CodexBinary(Path('/bin/codex-cxs'), 'codex-cli 0.164.0', (0,164,0,1), True)
     monkeypatch.setattr(codex_launcher, 'inspect_install', lambda: codex_launcher.LaunchDecision(binary, binary, None, 'fixture'))
     monkeypatch.setattr(config, 'load_config', lambda: config.StatusbarConfig(auto_upgrade=True))
-    monkeypatch.setattr(updater, 'upgrade_current_install', lambda: pytest.fail('must not replace live native tool host'))
+    calls = []
+    monkeypatch.setattr(updater, 'upgrade_current_install',
+                        lambda **kwargs: calls.append(kwargs) or (True, 'deferred'))
     ok, message = update_check.run()
-    assert ok and 'exit Codex' in message
+    # A different native version is only installed while no session runs the
+    # managed codex-cxs path; the updater enforces that under its lock.
+    assert ok and calls == [{'native_must_be_idle': True}]
 
 
 @pytest.mark.parametrize('manifest,installed_ok', [(None,True), ({},True), ({'codex_version':'0.164.0'},False)])

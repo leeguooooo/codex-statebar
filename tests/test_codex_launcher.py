@@ -39,6 +39,46 @@ def test_newer_official_codex_wins_over_patched_build(tmp_path):
     assert "newer" in decision.reason
 
 
+def _patch_gap_install(tmp_path, patched, official, *, host=True):
+    managed = tmp_path / "managed"
+    official_dir = tmp_path / "official"
+    managed.mkdir()
+    official_dir.mkdir()
+    _binary(managed / "codex-cxs", patched)
+    _binary(official_dir / "codex", official)
+    if host:
+        _binary(managed / "codex-code-mode-host", patched)
+    return codex_launcher.inspect_install(
+        managed_dir=managed, path_value=str(official_dir)
+    )
+
+
+def test_patched_build_is_kept_when_official_is_one_patch_ahead(tmp_path):
+    decision = _patch_gap_install(tmp_path, "0.167.1", "0.167.2")
+
+    assert decision.selected is decision.patched
+    assert "one patch release ahead" in decision.reason
+
+
+@pytest.mark.parametrize("patched,official", [
+    ("0.167.0", "0.167.2"),          # two patch releases
+    ("0.167.9", "0.168.0"),          # minor bump
+    ("0.167.1-alpha.1", "0.167.2"),  # not a stable patched build
+])
+def test_larger_version_gaps_still_route_to_official(tmp_path, patched, official):
+    decision = _patch_gap_install(tmp_path, patched, official)
+
+    assert decision.selected is decision.official
+    assert "newer" in decision.reason
+
+
+def test_one_patch_gap_needs_a_tool_host_for_the_patched_version(tmp_path):
+    # Without a host of its own version the patched build cannot run tools.
+    decision = _patch_gap_install(tmp_path, "0.167.1", "0.167.2", host=False)
+
+    assert decision.selected is decision.official
+
+
 def test_current_patched_codex_wins_over_older_official_build(tmp_path):
     managed = tmp_path / "managed"
     official_dir = tmp_path / "official"
@@ -172,6 +212,31 @@ def test_launcher_stays_quiet_when_routing_to_newer_official(
         str(official.path),
         [str(official.path), "--version"],
     )
+
+
+@pytest.mark.parametrize("patched_version,expected", [
+    ((0, 145, 0, 1), "BEHIND_INTERVAL_S"),
+    ((0, 153, 2, 1), "INTERVAL_S"),
+])
+def test_launch_schedules_update_check_even_without_rendering(
+    tmp_path, monkeypatch, patched_version, expected
+):
+    from codex_statebar import update_check
+    patched = codex_launcher.CodexBinary(
+        tmp_path / "codex-cxs", "codex-cli", patched_version, True
+    )
+    official = codex_launcher.CodexBinary(
+        tmp_path / "codex", "codex-cli 0.153.2", (0, 153, 2, 1), False
+    )
+    decision = codex_launcher.LaunchDecision(official, patched, official, "fixture")
+    intervals = []
+    monkeypatch.setattr(codex_launcher, "inspect_install", lambda: decision)
+    monkeypatch.setattr(update_check, "schedule", intervals.append)
+    monkeypatch.setattr(codex_launcher.os, "execve", lambda path, argv, env: None)
+
+    codex_launcher.launch([])
+
+    assert intervals == [getattr(update_check, expected)]
 
 
 def test_frozen_launcher_resets_pyinstaller_environment_for_nested_cxs(

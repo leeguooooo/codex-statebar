@@ -5,6 +5,8 @@ import time
 from pathlib import Path
 
 INTERVAL_S = 6 * 3600
+# The patched Codex is older than the official one: a matching release is due.
+BEHIND_INTERVAL_S = 30 * 60
 
 
 def _root():
@@ -29,13 +31,13 @@ def _claim(name="update.lock"):
     return handle
 
 
-def schedule():
+def schedule(interval=INTERVAL_S):
     if os.environ.get('CODEX_STATEBAR_NO_UPDATE', '').lower() in ('1', 'true', 'yes'):
         return
     marker = _root() / 'last_update_check'
     now = time.time()
     try:
-        if 0 <= now - marker.stat().st_mtime < INTERVAL_S:
+        if 0 <= now - marker.stat().st_mtime < interval:
             return
     except OSError:
         pass
@@ -44,7 +46,7 @@ def schedule():
         return
     try:
         try:
-            if 0 <= now - marker.stat().st_mtime < INTERVAL_S:
+            if 0 <= now - marker.stat().st_mtime < interval:
                 return
         except OSError:
             pass
@@ -78,11 +80,12 @@ def run(*, check_only=False):
         'version': latest, 'checked_at': time.time()}))
     newer = updater._version_tuple(latest) > updater._version_tuple(__version__)
     if newer and not check_only and load_config().auto_upgrade:
-        # Existing Codex frontends resolve their tool host from this same
-        # directory. A different native version cannot be swapped underneath
-        # a running session safely. Keep the hint for an explicit upgrade.
+        # A session started through the launcher's hard-linked alias keeps its
+        # own binary and tool host. One started from the managed codex-cxs path
+        # resolves the host from this directory, so a different native version
+        # is installed only while no such process runs.
         manifest_url = updater._asset_url(release, 'codex-cxs-manifest.json')
-        native_safe = False
+        native_safe = native_known = False
         if manifest_url and os.name != 'nt':
             manifest = json.loads(updater._fetch(manifest_url))
             version = manifest.get('codex_version')
@@ -90,9 +93,12 @@ def run(*, check_only=False):
             if isinstance(version, str) and re.fullmatch(r'\d+\.\d+\.\d+', version):
                 from .codex_launcher import inspect_install
                 installed = inspect_install().patched
+                native_known = installed is not None
                 native_safe = (installed is not None and
                                installed.version[:3] == updater._version_tuple(version)[:3])
-        if os.name != 'nt' and not native_safe:
+        if os.name != 'nt' and native_known and not native_safe:
+            ok, message = updater.upgrade_current_install(native_must_be_idle=True)
+        elif os.name != 'nt' and not native_safe:
             ok = True
             message = f'cxs {latest} available; native compatibility is unconfirmed — exit Codex, then run: cxs upgrade'
         elif os.name == 'nt':

@@ -9,6 +9,7 @@ import platform
 import shutil
 import ssl
 import stat
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -236,7 +237,37 @@ def _extract_member(archive: bytes, member: str, destination: Path) -> None:
         staged.chmod(staged.stat().st_mode | stat.S_IXUSR)
 
 
-def _upgrade_locked(target: str, destination: Path) -> Tuple[bool, str]:
+def _native_in_use(path: Path) -> bool:
+    """True when a process runs the managed codex-cxs path itself.
+
+    Sessions started through the launcher's alias run a pinned hard link and
+    are not matched. Any doubt counts as in use.
+    """
+    try:
+        listing = subprocess.run(
+            ["ps", "-axww", "-o", "pid=,args="],
+            capture_output=True, text=True, timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return True
+    if listing.returncode != 0:
+        return True
+    needles = {str(path)}
+    try:
+        needles.add(str(path.resolve()))
+    except OSError:
+        pass
+    own = str(os.getpid())
+    for line in listing.stdout.splitlines():
+        pid, _, arguments = line.strip().partition(" ")
+        if pid != own and any(needle in arguments for needle in needles):
+            return True
+    return False
+
+
+def _upgrade_locked(
+    target: str, destination: Path, native_must_be_idle: bool = False,
+) -> Tuple[bool, str]:
     staged_paths: list[Path] = []
     try:
         release = latest_release()
@@ -283,6 +314,13 @@ def _upgrade_locked(target: str, destination: Path) -> Tuple[bool, str]:
         }
         for binary, member, destination_path in binaries:
             _extract_member(archives[binary], member, destination_path)
+        if (native_must_be_idle and len(binaries) > 1
+                and _native_in_use(destination.with_name("codex-cxs"))):
+            return True, (
+                f"cxs {tag.lstrip('v')} is ready, but a running Codex session uses the "
+                "current patched build; it installs once that session exits, "
+                "or run: cxs upgrade"
+            )
         # Replace the patched Codex first and cxs last. All downloads,
         # checksums, and archive members have already been validated.
         installed_native = {
@@ -327,7 +365,7 @@ def _try_lock(handle) -> bool:
     return True
 
 
-def upgrade_current_install() -> Tuple[bool, str]:
+def upgrade_current_install(native_must_be_idle: bool = False) -> Tuple[bool, str]:
     target = _target()
     if not target:
         return False, "Unsupported platform for a prebuilt cxs binary."
@@ -348,7 +386,7 @@ def upgrade_current_install() -> Tuple[bool, str]:
     with lock:
         if not _try_lock(lock):
             return False, "Another cxs upgrade is already running."
-        return _upgrade_locked(target, destination)
+        return _upgrade_locked(target, destination, native_must_be_idle)
 
 
 def check_and_upgrade() -> Tuple[bool, str]:

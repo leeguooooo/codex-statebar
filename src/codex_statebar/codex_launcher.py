@@ -244,6 +244,16 @@ def inspect_install(
             "patched Codex is not installed",
         )
     if official and patched and official.version > patched.version:
+        if _one_patch_ahead(official, patched) and _has_code_mode_host(patched, official):
+            # A patch release lands upstream hours before the patched build
+            # follows. Keep the status bar for that gap; the background
+            # updater installs the matching build once it is published.
+            return LaunchDecision(
+                patched,
+                patched,
+                official,
+                "official Codex is one patch release ahead; patched build kept",
+            )
         return LaunchDecision(
             official,
             patched,
@@ -300,6 +310,26 @@ def _code_mode_host_candidates(
     yield from sorted(resolved.parent.parent.glob(
         f"node_modules/@openai/codex-*/vendor/{arch}-*{system}*/bin/{name}"
     ))
+
+
+def _one_patch_ahead(official: CodexBinary, patched: CodexBinary) -> bool:
+    return (
+        official.version[3] == 1
+        and patched.version[3] == 1
+        and official.version[:2] == patched.version[:2]
+        and official.version[2] == patched.version[2] + 1
+    )
+
+
+def _has_code_mode_host(patched: CodexBinary, official: Optional[CodexBinary]) -> bool:
+    """True when the patched build can find a tool host of its own version."""
+    target = patched.path.parent / _code_mode_host_name()
+    if target.is_file() and not target.is_symlink():
+        return True
+    return any(
+        candidate.is_file() and os.access(candidate, os.X_OK)
+        for candidate in _code_mode_host_candidates(patched, official)
+    )
 
 
 def ensure_code_mode_host(
@@ -611,6 +641,19 @@ def launch(args: Sequence[str]) -> int:
     if selected is None:
         print(f"codex-statebar: {decision.reason}", file=sys.stderr)
         return 127
+    try:
+        # Rendering schedules update checks, but nothing renders while the
+        # official Codex is running, so a lagging install must check from here.
+        from . import update_check
+        behind = bool(
+            decision.patched and decision.official
+            and decision.official.version > decision.patched.version
+        )
+        update_check.schedule(
+            update_check.BEHIND_INTERVAL_S if behind else update_check.INTERVAL_S
+        )
+    except Exception:
+        pass  # Never block starting Codex.
     # Selecting a newer official Codex is the healthy default. The native
     # status-line fallback remains available, and `cxs doctor` reports the full
     # routing decision when diagnostics are needed, so normal launches stay quiet.
