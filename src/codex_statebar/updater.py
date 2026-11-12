@@ -389,6 +389,62 @@ def upgrade_current_install(native_must_be_idle: bool = False) -> Tuple[bool, st
         return _upgrade_locked(target, destination, native_must_be_idle)
 
 
+CODEX_LATEST_API = "https://api.github.com/repos/openai/codex/releases/latest"
+
+
+def codex_follow_note() -> str:
+    """After an upgrade, say whether the patched Codex itself is up to date.
+
+    A cxs release can only carry the Codex version its patch was ported to.
+    When upstream is ahead, "Reinstalled cxs" alone reads as if Codex had been
+    upgraded, so name the versions and what happens next.
+    """
+    if os.name == "nt":
+        return ""
+    try:
+        from .codex_launcher import inspect_install
+        decision = inspect_install()
+    except Exception:
+        return ""
+    patched = decision.patched
+    if patched is None:
+        return ""
+    current = patched.version[:3]
+    newest, checked = current, False
+    try:
+        import re
+        tag = str(json.loads(_fetch(CODEX_LATEST_API)).get("tag_name") or "")
+        match = re.fullmatch(r"(?:rust-)?v?(\d+)\.(\d+)\.(\d+)", tag)
+        if match:
+            newest = max(newest, tuple(int(part) for part in match.groups()))
+            checked = True
+    except Exception:
+        pass
+    official = decision.official
+    if official is not None and official.version[3] == 1:
+        newest = max(newest, official.version[:3])
+
+    def text(version) -> str:
+        return ".".join(str(part) for part in version)
+
+    if newest == current:
+        return (f"Patched Codex {text(current)} is the latest Codex release."
+                if checked else f"Patched Codex is {text(current)}.")
+    if decision.selected is patched:
+        meanwhile = "Until then the status bar keeps running on the patched build."
+    else:
+        meanwhile = (
+            f"Until then the launcher runs the official Codex "
+            f"{text(official.version[:3])} without the embedded status bar."
+        )
+    return (
+        f"Codex itself was not upgraded: the patched build is still {text(current)} "
+        f"and Codex {text(newest)} is out. No cxs release carries a patched "
+        f"{text(newest)} yet; it is installed automatically once published, "
+        f"usually within a few hours. {meanwhile}"
+    )
+
+
 def check_and_upgrade() -> Tuple[bool, str]:
     return upgrade_current_install()
 

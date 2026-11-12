@@ -201,9 +201,13 @@ def _run_daemon_subcommand(rest):
 
 def _run_upgrade_subcommand():
     """Handle `cxs upgrade`. Returns exit code."""
-    from .updater import upgrade_current_install
+    from .updater import codex_follow_note, upgrade_current_install
     ok, message = upgrade_current_install()
     print(message)
+    if ok:
+        note = codex_follow_note()
+        if note:
+            print(note)
     return 0 if ok else 1
 
 

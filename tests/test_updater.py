@@ -533,3 +533,51 @@ def test_native_in_use_matches_only_the_managed_path(tmp_path, monkeypatch):
         lambda *a, **kw: (_ for _ in ()).throw(OSError("no ps")),
     )
     assert updater._native_in_use(binary) is True
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows releases do not ship codex-cxs")
+@pytest.mark.parametrize("patched,official,upstream,selected,expected", [
+    ("0.167.0", "0.167.2", "rust-v0.167.2", "official",
+     ["not upgraded", "still 0.167.0", "Codex 0.167.2 is out", "official Codex 0.167.2 without"]),
+    ("0.167.1", "0.167.2", "rust-v0.167.2", "patched",
+     ["not upgraded", "still 0.167.1", "keeps running on the patched build"]),
+    ("0.167.2", "0.167.2", None, "patched", ["Patched Codex is 0.167.2."]),
+    ("0.167.2", None, "rust-v0.167.2", "patched", ["0.167.2 is the latest Codex release"]),
+    ("0.167.0", None, "rust-v0.168.0", "patched", ["not upgraded", "Codex 0.168.0 is out"]),
+])
+def test_upgrade_note_says_when_codex_itself_is_behind(
+    tmp_path, monkeypatch, patched, official, upstream, selected, expected
+):
+    from codex_statebar import codex_launcher
+
+    def binary(name, version, is_patched):
+        key = tuple(int(part) for part in version.split(".")) + (1,)
+        return codex_launcher.CodexBinary(tmp_path / name, "codex-cli " + version, key, is_patched)
+
+    patched_binary = binary("codex-cxs", patched, True)
+    official_binary = binary("codex", official, False) if official else None
+    decision = codex_launcher.LaunchDecision(
+        patched_binary if selected == "patched" else official_binary,
+        patched_binary, official_binary, "fixture",
+    )
+    monkeypatch.setattr(codex_launcher, "inspect_install", lambda: decision)
+
+    def fetch(url):
+        assert url == updater.CODEX_LATEST_API
+        if upstream is None:
+            raise OSError("offline")
+        return json_bytes({"tag_name": upstream})
+
+    monkeypatch.setattr(updater, "_fetch", fetch)
+    note = updater.codex_follow_note()
+    for fragment in expected:
+        assert fragment in note
+
+
+def test_codex_update_prints_the_follow_note(monkeypatch, capsys):
+    from codex_statebar import codex_launcher
+    monkeypatch.setattr(updater, "upgrade_current_install", lambda: (True, "Reinstalled cxs from v0.5.13"))
+    monkeypatch.setattr(updater, "codex_follow_note", lambda: "Codex itself was not upgraded: fixture")
+    assert codex_launcher.launch(["update"]) == 0
+    out = capsys.readouterr().out
+    assert "Reinstalled cxs" in out and "Codex itself was not upgraded" in out

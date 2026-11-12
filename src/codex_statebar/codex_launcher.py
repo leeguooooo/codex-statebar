@@ -627,9 +627,13 @@ def launch(args: Sequence[str]) -> int:
     if list(args) == ["update"]:
         # Codex's own updater can't recognise this install and tells users to
         # reinstall by hand, which overwrites the launcher. Update ours instead.
-        from .updater import upgrade_current_install
+        from .updater import codex_follow_note, upgrade_current_install
         ok, message = upgrade_current_install()
         print(message, file=sys.stdout if ok else sys.stderr)
+        if ok:
+            note = codex_follow_note()
+            if note:
+                print(note)
         return 0 if ok else 1
     try:
         from .guard import ensure_installed
