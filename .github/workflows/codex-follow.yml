@@ -105,9 +105,8 @@ jobs:
         run: |
           set -euo pipefail
           esc="${CUR//./\\.}"
-          for f in .github/workflows/release-binaries.yml \
-                   .github/workflows/patched-codex-candidate.yml \
-                   scripts/build-patched-codex.sh scripts/verify_embedded_codex.py \
+          # Workflow files must stay version-free: GITHUB_TOKEN cannot push them.
+          for f in scripts/build-patched-codex.sh scripts/verify_embedded_codex.py \
                    src/codex_statebar/skills/codex-statebar/SKILL.md \
                    README.md README.zh-CN.md README.html README.zh-CN.html; do
             sed -i "s/$esc/$NEW/g" "$f"
@@ -118,7 +117,7 @@ jobs:
           sed -i "s/v = \"$old\"/v = \"$next\"/" src/codex_statebar/__init__.py
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A patches .github scripts src README.md README.zh-CN.md README.html README.zh-CN.html pyproject.toml
+          git add -A patches scripts src README.md README.zh-CN.md README.html README.zh-CN.html pyproject.toml
           git commit -qm "feat(codex): 补丁自动跟进 Codex $NEW 并发布 v$next"
           git tag "v$next"
           git push origin main "v$next"
@@ -150,6 +149,9 @@ jobs:
           printf '状态栏补丁自动跟进 Codex %s（原 %s）。\n\n**Full Changelog**: https://github.com/%s/compare/%s...%s\n' \
             "$NEW" "$CUR" "$GITHUB_REPOSITORY" "$prev" "$TAG" > notes.md
           gh release edit "$TAG" --title "$TAG — 跟进 Codex $NEW" --notes-file notes.md --draft=false --latest
+          gh issue list --state open --search "自动跟进 Codex in:title" --json number,title \
+            -q '.[]|select(.title|test("^自动跟进 Codex .* 失败$"))|.number' |
+            while read -r n; do gh issue close "$n" --comment "已由 $TAG 跟进到 Codex $NEW。" || true; done
 
       - name: Open issue on failure
         if: failure() && steps.ver.outputs.newer == 'yes'

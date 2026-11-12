@@ -140,6 +140,9 @@ jobs:
       # Version-independent so a new Codex release starts from the previous
       # release's dependency artifacts instead of a cold build.
       CARGO_TARGET_DIR: ${{ github.workspace }}/build/target
+      # No Codex version in this file: the upstream-follow bot bumps the version
+      # with GITHUB_TOKEN, which may not push changes to workflow files.
+      CODEX_BUILD_ROOT: ${{ github.workspace }}/build/codex
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -152,7 +155,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             build/target
-          key: codex-${{ matrix.target }}-${{ hashFiles('patches/codex-0.167.0*', 'scripts/build-patched-codex.sh') }}
+          key: codex-${{ matrix.target }}-${{ hashFiles('patches/codex-*.patch', 'scripts/build-patched-codex.sh') }}
           restore-keys: codex-${{ matrix.target }}-
       - run: ./scripts/build-patched-codex.sh
       - if: ${{ !matrix.cross }}
@@ -171,7 +174,7 @@ jobs:
             codex-cxs-${{ matrix.target }}.tar.gz.sha256
       - name: Keep only dependency artifacts in the cache
         if: always()
-        run: python3 scripts/prune_codex_target.py build/codex-0.167.0/source/codex-rs/Cargo.toml build/target || true
+        run: python3 scripts/prune_codex_target.py build/codex/source/codex-rs/Cargo.toml build/target || true
       - uses: actions/cache/save@v4
         if: always()
         with:
@@ -179,7 +182,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             build/target
-          key: codex-${{ matrix.target }}-${{ hashFiles('patches/codex-0.167.0*', 'scripts/build-patched-codex.sh') }}
+          key: codex-${{ matrix.target }}-${{ hashFiles('patches/codex-*.patch', 'scripts/build-patched-codex.sh') }}
 
   verify-intel-codex:
     needs: build-patched-codex
@@ -248,9 +251,10 @@ jobs:
       - name: Package matching Codex tool host
         env:
           GH_TOKEN: ${{ github.token }}
-          CODEX_VERSION: "0.167.0"
         shell: bash
         run: |
+          CODEX_VERSION=$(sed -n 's/^VERSION="\${CODEX_VERSION:-\([0-9.]*\)}"$/\1/p' scripts/build-patched-codex.sh)
+          test -n "$CODEX_VERSION"
           # Codex runs every tool call through codex-code-mode-host, resolved
           # beside its own executable. Ship upstream's unmodified host for the
           # exact Codex version codex-cxs is built from.
