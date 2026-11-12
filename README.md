@@ -17,7 +17,7 @@ cxs doctor
 
 The installer verifies SHA-256 checksums, installs `cxs` and the patched `codex-cxs`, then adds a user-level `codex` launcher. An existing `~/.local/bin/codex` is backed up first; the binary bundled with the ChatGPT app is never modified.
 
-The launcher compares the official Codex on your PATH with the patched build. When the patched build is the same version or newer, it runs `codex-cxs`. When the official Codex is newer, it runs the official one and the embedded status bar pauses until a matching patched build ships; `cxs doctor` shows which one was picked. An official update is never silently hidden behind an older patched build. `cxs upgrade` verifies and updates `cxs` and `codex-cxs` together.
+The launcher compares the official Codex on your PATH with the patched build. When the patched build is the same version or newer, it runs `codex-cxs`. When the official Codex is exactly one patch release ahead (0.167.1 → 0.167.2), it keeps running `codex-cxs` so the status bar stays up while the matching patched build is published. For a larger gap it runs the official one and the embedded status bar pauses until a matching patched build is installed; `cxs doctor` shows which one was picked. `cxs upgrade` verifies and updates `cxs` and `codex-cxs` together.
 
 GitHub Actions builds standalone binaries for macOS and Linux, so you need neither Python nor Rust. To skip the user-level launcher:
 
@@ -52,7 +52,7 @@ Visual settings come from `~/.codex/codex-statebar.json` first. Without a Codex-
 
 ## Embedded in the Codex TUI
 
-The installer configures everything; open a new terminal and run `codex`. The current patch targets Codex 0.167.2, and Aurora and the other multi-line styles appear under the input box. `config.toml` keeps the native fields as a fallback, and the rich status command is passed only to the selected patched process. If the official Codex is newer than the patched build, the launcher prefers the official one.
+The installer configures everything; open a new terminal and run `codex`. The current patch targets Codex 0.167.2, and Aurora and the other multi-line styles appear under the input box. `config.toml` keeps the native fields as a fallback, and the rich status command is passed only to the selected patched process. If the official Codex is more than one patch release ahead of the patched build, the launcher prefers the official one.
 
 ## New looks, worktrees and OCS
 
@@ -65,7 +65,7 @@ Four looks: Aurora with block bars (default), Aurora with a thin line, Ring (`�
 - When a new set of looks ships, the status bar shows `New looks · cxs theme`. Run `cxs theme` and use the arrow keys to pick Aurora block, Aurora thin, Ring or Classic; cancelling keeps your current style. `cxs themes` still lists the palettes.
 - The worktree line shows the checkout name, the main repository and the number of live checkouts; leftover records of deleted checkouts are not counted. The main checkout shows the count too, so you can tell which tree you are editing. Configure it with `worktree_glyph` and `color_worktree`.
 - With OCS installed, a separate line shows the current Codex session's address, unread messages and LAN state. It is matched by the full thread ID, so another session in the same directory is never shown; status comes only from the read-only OCS CLI and refreshes about every 30 seconds.
-- Every 6 hours a background check looks for a new GitHub Release and installs it after verification. `cxs config set auto_upgrade false` keeps the check and the update hint but turns off automatic installs; `CODEX_STATEBAR_NO_UPDATE=1` turns off the check. Run `cxs upgrade --check` or `cxs upgrade` by hand. When an update changes the native Codex version, it only shows a hint: exit Codex, then upgrade by hand, so running sessions keep working. On Windows it only suggests reinstalling.
+- Every 6 hours a background check looks for a new GitHub Release and installs it after verification; while the patched Codex is older than the official one, it checks every 30 minutes, each time you start `codex`. `cxs config set auto_upgrade false` keeps the check and the update hint but turns off automatic installs; `CODEX_STATEBAR_NO_UPDATE=1` turns off the check. Run `cxs upgrade --check` or `cxs upgrade` by hand. An update that changes the native Codex version is installed as well; it waits only while a session runs `codex-cxs` directly instead of through the launcher, and then installs on a later check or with `cxs upgrade`. On Windows it only suggests reinstalling.
 
 The five-hour window appears only when Codex reports one (Pro does; the 100 and 200 plans do not), together with its natural reset countdown; with both windows on the line, Aurora drops the context mini bar and keeps the percentage. Things Codex does not report — Claude's prompt-cache TTL and per-Claude-model quotas — are never faked. Git, activity, tasks, reasoning effort, themes, projections, the standalone terminal panel and diagnostics are all kept.
 

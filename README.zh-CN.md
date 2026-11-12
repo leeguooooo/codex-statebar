@@ -17,7 +17,7 @@ cxs doctor
 
 安装脚本会校验 SHA-256，安装 `cxs` 和补丁版 `codex-cxs`，再安装一个用户级 `codex` 启动器。已有的 `~/.local/bin/codex` 会先备份；ChatGPT App 内置二进制不会被修改。
 
-启动器会比较 PATH 中的官方 Codex 和补丁版：补丁版版本相同或更新时运行 `codex-cxs`；官方版更新时改为运行官方版，嵌入式状态栏暂停，直到补丁版跟上；`cxs doctor` 会显示当前选择。这样官方更新不会被旧补丁版静默遮住。`cxs upgrade` 会一起校验并更新 `cxs` 与 `codex-cxs`。
+启动器会比较 PATH 中的官方 Codex 和补丁版：补丁版版本相同或更新时运行 `codex-cxs`；官方版只高一个补丁号（如 0.167.1 → 0.167.2）时仍运行 `codex-cxs`，对应的补丁版发布前状态栏不中断；差距更大时改为运行官方版，嵌入式状态栏暂停，直到装上对应的补丁版；`cxs doctor` 会显示当前选择。`cxs upgrade` 会一起校验并更新 `cxs` 与 `codex-cxs`。
 
 GitHub Actions 为 macOS 和 Linux 构建独立二进制，用户端不需要 Python 或 Rust。若不想安装用户级启动器：
 
@@ -52,7 +52,7 @@ macOS / Linux 版首次启动时将运行时展开到 `~/.local/lib/codex-stateb
 
 ## 嵌入 Codex TUI
 
-安装器会自动配置，重新打开终端运行 `codex` 即可。当前补丁基于 Codex 0.167.2，Aurora 等多行样式显示在输入框下方。config.toml 保留原生字段作为后备；富状态栏命令只传给选中的补丁版进程。若官方版比补丁版更新，启动器优先官方版。
+安装器会自动配置，重新打开终端运行 `codex` 即可。当前补丁基于 Codex 0.167.2，Aurora 等多行样式显示在输入框下方。config.toml 保留原生字段作为后备；富状态栏命令只传给选中的补丁版进程。若官方版比补丁版高出不止一个补丁号，启动器优先官方版。
 
 ## 新外观、worktree 与 OCS
 
@@ -65,7 +65,7 @@ macOS / Linux 版首次启动时将运行时展开到 `~/.local/lib/codex-stateb
 - 首次遇到新的外观集合，状态栏显示 `New looks · cxs theme`。运行 `cxs theme` 用方向键选择 Aurora 方块、Aurora 细线、Ring 圆环或 Classic；取消保留原来的样式。`cxs themes` 仍列出配色。
 - worktree 显示名称、主仓库名与有效 checkout 数量，已删除 checkout 的残留记录不计入。主 checkout 也显示数量，便于分辨正在修改哪棵树。可配置 `worktree_glyph` 与 `color_worktree`。
 - 已安装 OCS 时独立显示当前 Codex 会话地址、未读消息和 LAN 状态。按完整 thread ID 校验，避免显示同目录的另一会话；状态只通过只读 OCS CLI 查询，约 30 秒更新一次。
-- 每 6 小时后台检查 GitHub Release，发现新版时自动校验并升级。`cxs config set auto_upgrade false` 保留检查及新版提示，关闭自动安装；`CODEX_STATEBAR_NO_UPDATE=1` 关闭检查。手动运行 `cxs upgrade --check` 或 `cxs upgrade`。若需要更换原生 Codex 版本，后台保留提示，退出 Codex 后手动升级，避免破坏正在运行的执行组件。Windows 只提示重新安装。
+- 每 6 小时后台检查 GitHub Release，发现新版时自动校验并升级；补丁版比官方版旧时，每次启动 `codex` 都会检查，间隔缩短到 30 分钟。`cxs config set auto_upgrade false` 保留检查及新版提示，关闭自动安装；`CODEX_STATEBAR_NO_UPDATE=1` 关闭检查。手动运行 `cxs upgrade --check` 或 `cxs upgrade`。更换原生 Codex 版本的更新同样自动安装；只有会话绕过启动器直接运行 `codex-cxs` 时才推迟，之后的检查或 `cxs upgrade` 会装上。Windows 只提示重新安装。
 
 五小时额度只在 Codex 上报时显示（Pro 有，100 和 200 套餐没有），并带自然重置倒计时；两个窗口同时出现时，Aurora 去掉上下文小条、只留百分比。Codex 不提供的 Claude prompt-cache TTL 和按 Claude 模型划分的额度不会伪造显示。Git、活动、任务、推理强度、主题、预测、独立终端面板和诊断保留。
 

@@ -44,7 +44,7 @@
     <pre>curl -fsSL https://raw.githubusercontent.com/leeguooooo/codex-statebar/main/install.sh | sh
 cxs doctor</pre>
     <p>一键安装会校验 SHA-256，安装 <code>cxs</code>、补丁版 <code>codex-cxs</code> 与用户级 <code>codex</code> 启动器，并通过 <code>cxs --setup</code> 接入状态栏。已有的 <code>~/.local/bin/codex</code> 会先备份；ChatGPT App 内置二进制不会被修改。</p>
-    <p>启动器会比较 PATH 中的官方 Codex 和补丁版：补丁版版本相同或更新时运行 <code>codex-cxs</code>；官方版更新时改为运行官方版并使用原生状态栏。这样官方更新不会被旧补丁版静默遮住。<code>cxs upgrade</code> 会一起校验并更新 <code>cxs</code> 与 <code>codex-cxs</code>。</p>
+    <p>启动器会比较 PATH 中的官方 Codex 和补丁版：补丁版版本相同或更新时运行 <code>codex-cxs</code>；官方版只高一个补丁号（如 0.167.1 → 0.167.2）时仍运行 <code>codex-cxs</code>，对应的补丁版发布前状态栏不中断；差距更大时改为运行官方版并使用原生状态栏。<code>cxs upgrade</code> 会一起校验并更新 <code>cxs</code> 与 <code>codex-cxs</code>。</p>
     <p>发布物由 GitHub Actions 为 macOS / Linux 构建为独立二进制；用户端不需要 Python 或 Rust。若不想安装用户级启动器，设置 <code>CODEX_STATEBAR_INSTALL_CODEX_DEFAULT=0</code>。</p>
     <p>macOS / Linux 版首次启动时将运行时展开到 <code>~/.local/lib/codex-statebar/&lt;内容校验值&gt;/</code>，后续启动复用该目录，不再为每次刷新创建 <code>_MEI…</code>。文件锁保护并发初始化，中断后自动重建不完整目录。可用 <code>CODEX_STATEBAR_RUNTIME_DIR</code> 指定存放位置。运行时通过共享锁保护仍在使用的版本；自动保留当前版本和一个闲置回退版本，回收其他已退出的版本及中断解包目录。没有使用锁标记的历史版本由人工核对后清理；升级更新安装入口。</p>
     <p>版本探测跳过 cmux 转发脚本；其他包装脚本若绕回 <code>cxs</code>，重入保护会立即拒绝探针，避免递归进程链。</p>
@@ -78,7 +78,7 @@ cxs doctor</pre>
 
   <section>
     <h2>Codex TUI 状态栏</h2>
-    <aside><code>codex</code> 启动器选择兼容的补丁版时，会自动启用嵌入式富状态栏并沿用所选样式；无需另开终端运行 watch。官方版更新于补丁版时，自动改用官方版与原生状态栏。</aside>
+    <aside><code>codex</code> 启动器选择兼容的补丁版时，会自动启用嵌入式富状态栏并沿用所选样式；无需另开终端运行 watch。官方版比补丁版高出不止一个补丁号时，自动改用官方版与原生状态栏。</aside>
     <pre>cxs --setup</pre>
     <p>原生回退配置包含模型、目录、Git 分支、上下文余量、每周限额、Fast 状态。原生配置保留在 config.toml；外部命令只由启动器传给补丁进程，后续切换官方版时不会留下不兼容配置。安装升级后重启 Codex CLI 生效。</p>
     <p>当前补丁对应 <code>rust-v0.167.2</code>。安装后运行 <code>codex</code> 即可使用：状态栏占据输入框下方独立测量的多行区域，最多 6 行；缩窄窗口时按实际可用宽度重排。命令超时、失败或输出超限时显示原生状态栏。<code>cxs doctor</code> 可检查当前选择的版本及接入情况。</p>
@@ -94,7 +94,7 @@ cxs doctor</pre>
        <img src="https://raw.githubusercontent.com/leeguooooo/codex-statebar/main/docs/images/look-classic.png" alt="Classic" width="800"></p>
     <p>worktree 行显示 checkout 名称、主仓库与有效数量，排除已删除 checkout 的残留记录。主 checkout 同样显示数量。可用 <code>cxs config set worktree_glyph ⑂</code> 和 <code>cxs config set color_worktree &quot;#bd93f9&quot;</code> 调整。</p>
     <p>已安装 OCS 时，独立一行显示当前 Codex 会话的地址、未读消息与 LAN 状态。查询只使用 <code>ocs whoami --json</code>、<code>ocs inbox --json</code> 与 <code>ocs lan status --json</code>，按完整 thread ID 校验，30 秒缓存；未安装或不认识当前会话时隐藏，不会借用其他会话的身份。</p>
-    <p>每 6 小时在后台检查 GitHub Release，发现新版后校验 SHA-256 并升级。<code>cxs config set auto_upgrade false</code> 关闭自动安装，保留版本检查和提示；<code>CODEX_STATEBAR_NO_UPDATE=1</code> 关闭检查。也可运行 <code>cxs upgrade --check</code> 或 <code>cxs upgrade</code>。若新版同时更换原生 Codex 版本，后台只提示更新；退出 Codex 后运行 <code>cxs upgrade</code>，避免替换正在使用的执行组件。Windows 运行中的 EXE 被系统锁定，因此只提示重新安装。</p>
+    <p>每 6 小时在后台检查 GitHub Release，发现新版后校验 SHA-256 并升级；补丁版比官方版旧时，每次启动 <code>codex</code> 都会检查，间隔缩短到 30 分钟。<code>cxs config set auto_upgrade false</code> 关闭自动安装，保留版本检查和提示；<code>CODEX_STATEBAR_NO_UPDATE=1</code> 关闭检查。也可运行 <code>cxs upgrade --check</code> 或 <code>cxs upgrade</code>。更换原生 Codex 版本的更新同样自动安装；只有会话绕过启动器直接运行 <code>codex-cxs</code> 时才推迟，之后的检查或 <code>cxs upgrade</code> 会装上。Windows 运行中的 EXE 被系统锁定，因此只提示重新安装。</p>
   </section>
 
   <section>
