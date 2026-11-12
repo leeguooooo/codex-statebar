@@ -17,7 +17,7 @@ cxs doctor
 
 The installer verifies SHA-256 checksums, installs `cxs` and the patched `codex-cxs`, then adds a user-level `codex` launcher. An existing `~/.local/bin/codex` is backed up first; the binary bundled with the ChatGPT app is never modified.
 
-The launcher compares the official Codex on your PATH with the patched build. When the patched build is the same version or newer, it runs `codex-cxs`. When the official Codex is exactly one patch release ahead (0.167.1 → 0.167.2), it keeps running `codex-cxs` so the status bar stays up while the matching patched build is published. For a larger gap it runs the official one and the embedded status bar pauses until a matching patched build is installed; `cxs doctor` shows which one was picked. `cxs upgrade` verifies and updates `cxs` and `codex-cxs` together.
+The launcher compares the official Codex on your PATH with the patched build. When the patched build is the same version or newer, it runs `codex-cxs`. When the official Codex is exactly one patch release ahead (x.y.1 → x.y.2), it keeps running `codex-cxs` so the status bar stays up while the matching patched build is published. For a larger gap it runs the official one and the embedded status bar pauses until a matching patched build is installed; `cxs doctor` shows which one was picked. `cxs upgrade` verifies and updates `cxs` and `codex-cxs` together.
 
 GitHub Actions builds standalone binaries for macOS and Linux, so you need neither Python nor Rust. To skip the user-level launcher:
 

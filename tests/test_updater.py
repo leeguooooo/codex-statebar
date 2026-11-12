@@ -489,6 +489,7 @@ def test_background_native_upgrade_waits_for_direct_sessions(tmp_path, monkeypat
     ok, message = updater.upgrade_current_install(native_must_be_idle=True)
 
     assert ok is True and "cxs upgrade" in message
+    # Checked before any download, so a deferred upgrade fetches nothing.
     assert seen == [tmp_path / "codex-cxs"]
     assert cxs.read_bytes() == b"old-cxs"
     assert (tmp_path / "codex-cxs").read_bytes() == b"old-codex"
@@ -516,18 +517,45 @@ def test_native_in_use_matches_only_the_managed_path(tmp_path, monkeypatch):
     binary = tmp_path / "codex-cxs"
     binary.write_text("#!/bin/sh\nsleep 30\n")
     binary.chmod(0o755)
-    assert updater._native_in_use(binary) is False
+    if updater._native_in_use(binary):
+        pytest.skip("a codex-cxs process started by bare name is running on this machine")
     process = subprocess.Popen([str(binary)])
     try:
         deadline = time.time() + 5
         while not updater._native_in_use(binary) and time.time() < deadline:
             time.sleep(0.05)
         assert updater._native_in_use(binary) is True
-        # An alias session runs another path and never blocks the upgrade.
-        assert updater._native_in_use(tmp_path / ".cxs-exec" / "1-2-3" / "codex") is False
     finally:
         process.kill()
         process.wait()
+    # An alias session runs a hard link named `codex` and never blocks the upgrade.
+    import shutil
+    alias_dir = tmp_path / ".cxs-exec" / "1-2-3"
+    alias_dir.mkdir(parents=True)
+    (alias_dir / "codex").symlink_to(shutil.which("sleep"))
+    alias = subprocess.Popen([str(alias_dir / "codex"), "30"])
+    try:
+        time.sleep(0.3)
+        assert updater._native_in_use(binary) is False
+    finally:
+        alias.kill()
+        alias.wait()
+    # Typed bare (installs without the managed launcher) the process has no
+    # path in its arguments; it is matched by executable name.
+    bare_dir = tmp_path / "bare"
+    bare_dir.mkdir()
+    (bare_dir / "codex-cxs").symlink_to(shutil.which("sleep"))
+    bare = subprocess.Popen(
+        ["codex-cxs", "30"], env={"PATH": f"{bare_dir}{os.pathsep}/usr/bin:/bin"}, cwd="/",
+    )
+    try:
+        deadline = time.time() + 5
+        while not updater._native_in_use(bare_dir / "codex-cxs") and time.time() < deadline:
+            time.sleep(0.05)
+        assert updater._native_in_use(bare_dir / "codex-cxs") is True
+    finally:
+        bare.kill()
+        bare.wait()
     monkeypatch.setattr(
         updater.subprocess, "run",
         lambda *a, **kw: (_ for _ in ()).throw(OSError("no ps")),

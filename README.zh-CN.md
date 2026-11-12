@@ -17,7 +17,7 @@ cxs doctor
 
 安装脚本会校验 SHA-256，安装 `cxs` 和补丁版 `codex-cxs`，再安装一个用户级 `codex` 启动器。已有的 `~/.local/bin/codex` 会先备份；ChatGPT App 内置二进制不会被修改。
 
-启动器会比较 PATH 中的官方 Codex 和补丁版：补丁版版本相同或更新时运行 `codex-cxs`；官方版只高一个补丁号（如 0.167.1 → 0.167.2）时仍运行 `codex-cxs`，对应的补丁版发布前状态栏不中断；差距更大时改为运行官方版，嵌入式状态栏暂停，直到装上对应的补丁版；`cxs doctor` 会显示当前选择。`cxs upgrade` 会一起校验并更新 `cxs` 与 `codex-cxs`。
+启动器会比较 PATH 中的官方 Codex 和补丁版：补丁版版本相同或更新时运行 `codex-cxs`；官方版只高一个补丁号（如 x.y.1 → x.y.2）时仍运行 `codex-cxs`，对应的补丁版发布前状态栏不中断；差距更大时改为运行官方版，嵌入式状态栏暂停，直到装上对应的补丁版；`cxs doctor` 会显示当前选择。`cxs upgrade` 会一起校验并更新 `cxs` 与 `codex-cxs`。
 
 GitHub Actions 为 macOS 和 Linux 构建独立二进制，用户端不需要 Python 或 Rust。若不想安装用户级启动器：
 

@@ -238,31 +238,41 @@ def _extract_member(archive: bytes, member: str, destination: Path) -> None:
 
 
 def _native_in_use(path: Path) -> bool:
-    """True when a process runs the managed codex-cxs path itself.
+    """True when a process runs codex-cxs itself rather than a launcher alias.
 
-    Sessions started through the launcher's alias run a pinned hard link and
-    are not matched. Any doubt counts as in use.
+    Sessions started through the launcher's alias run a pinned hard link named
+    ``codex`` and are not matched. A process is matched by executable name
+    (``codex-cxs`` typed bare has no path in its arguments) or by the managed
+    path appearing in its arguments. Any doubt counts as in use.
     """
-    try:
-        listing = subprocess.run(
-            ["ps", "-axww", "-o", "pid=,args="],
-            capture_output=True, text=True, timeout=10,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return True
-    if listing.returncode != 0:
+    def listing(column: str) -> Optional[list]:
+        try:
+            result = subprocess.run(
+                ["ps", "-axww", "-o", f"pid=,{column}="],
+                capture_output=True, text=True, timeout=10,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        if result.returncode != 0:
+            return None
+        own = str(os.getpid())
+        rows = (line.strip().partition(" ") for line in result.stdout.splitlines())
+        return [value.strip() for pid, _, value in rows if pid != own]
+
+    names, arguments = listing("comm"), listing("args")
+    if names is None or arguments is None:
         return True
     needles = {str(path)}
     try:
         needles.add(str(path.resolve()))
     except OSError:
         pass
-    own = str(os.getpid())
-    for line in listing.stdout.splitlines():
-        pid, _, arguments = line.strip().partition(" ")
-        if pid != own and any(needle in arguments for needle in needles):
+    for name in names:
+        # A bare name cannot be told apart from the managed copy; a full path
+        # to some other codex-cxs is not ours.
+        if name == path.name or (os.sep in name and name in needles):
             return True
-    return False
+    return any(needle in line for line in arguments for needle in needles)
 
 
 def _upgrade_locked(
@@ -301,6 +311,20 @@ def _upgrade_locked(
             _native_is_current(receipt, manifest, path) for _b, _m, path in native
         )):
             binaries.extend(native)
+        def deferred() -> Optional[Tuple[bool, str]]:
+            if (native_must_be_idle and len(binaries) > 1
+                    and _native_in_use(destination.with_name("codex-cxs"))):
+                return True, (
+                    f"cxs {tag.lstrip('v')} is ready, but a running Codex session uses the "
+                    "current patched build; it installs once that session exits, "
+                    "or run: cxs upgrade"
+                )
+            return None
+
+        # Checked before downloading and again just before the swap.
+        waiting = deferred()
+        if waiting:
+            return waiting
         staged_paths = [
             path.with_name(path.name + ".new") for _b, _m, path in binaries
         ]
@@ -314,13 +338,9 @@ def _upgrade_locked(
         }
         for binary, member, destination_path in binaries:
             _extract_member(archives[binary], member, destination_path)
-        if (native_must_be_idle and len(binaries) > 1
-                and _native_in_use(destination.with_name("codex-cxs"))):
-            return True, (
-                f"cxs {tag.lstrip('v')} is ready, but a running Codex session uses the "
-                "current patched build; it installs once that session exits, "
-                "or run: cxs upgrade"
-            )
+        waiting = deferred()
+        if waiting:
+            return waiting
         # Replace the patched Codex first and cxs last. All downloads,
         # checksums, and archive members have already been validated.
         installed_native = {
