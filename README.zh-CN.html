@@ -81,7 +81,7 @@ cxs doctor</pre>
     <aside><code>codex</code> 启动器选择兼容的补丁版时，会自动启用嵌入式富状态栏并沿用所选样式；无需另开终端运行 watch。官方版更新于补丁版时，自动改用官方版与原生状态栏。</aside>
     <pre>cxs --setup</pre>
     <p>原生回退配置包含模型、目录、Git 分支、上下文余量、每周限额、Fast 状态。原生配置保留在 config.toml；外部命令只由启动器传给补丁进程，后续切换官方版时不会留下不兼容配置。安装升级后重启 Codex CLI 生效。</p>
-    <p>当前补丁对应 <code>rust-v0.167.0</code>。安装后运行 <code>codex</code> 即可使用：状态栏占据输入框下方独立测量的多行区域，最多 6 行；缩窄窗口时按实际可用宽度重排。命令超时、失败或输出超限时显示原生状态栏。<code>cxs doctor</code> 可检查当前选择的版本及接入情况。</p>
+    <p>当前补丁对应 <code>rust-v0.167.2</code>。安装后运行 <code>codex</code> 即可使用：状态栏占据输入框下方独立测量的多行区域，最多 6 行；缩窄窗口时按实际可用宽度重排。命令超时、失败或输出超限时显示原生状态栏。<code>cxs doctor</code> 可检查当前选择的版本及接入情况。</p>
     <p>上游扩展点进展见 <a href="https://github.com/openai/codex/issues/17827">openai/codex#17827</a>。</p>
     <p>新建 Codex CLI 后，需要至少发送一条消息，Codex 才会创建可读取的 rollout。若尚未发送消息，<code>cxs</code> 会提示先完成首轮交互；它不会改用同目录的 Desktop 会话。</p>
   </section>
@@ -115,7 +115,7 @@ cxs doctor</pre>
 python -m pytest -q
 python -m compileall -q src
 cxs --no-color
-patch --dry-run -d /path/to/codex -p1 &lt; patches/codex-0.167.0-external-status-line.patch
+patch --dry-run -d /path/to/codex -p1 &lt; patches/codex-0.167.2-external-status-line.patch
 cargo check -p codex-tui</pre>
   </section>
 <p>官方重置公告默认附在第一行末尾，区分已完成、已公告待执行和 AI 预测；它不代表个人账户已到账。公告时间只是大概：一旦本机额度窗口提前重新开始，这一段会改为醒目的 <code>✓ 额度已重置 · 本机实测 …</code>，不再显示倒计时。重置文案随系统适配简中、繁中、英、日、韩，可用 <code>cxs config set lang auto</code> 跟随系统，或设置 <code>zh</code>、<code>zh-TW</code>、<code>en</code>、<code>ja</code>、<code>ko</code>。<code>cxs config set show_resets false</code> 关闭显示及后台刷新。数据来自 <a href="https://codex-resets.com/api/docs">Codex Resets API</a>，后台每 5 分钟刷新，渲染不等待网络。</p>
