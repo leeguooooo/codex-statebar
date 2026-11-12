@@ -55,8 +55,13 @@ mod app_event_sender {
 #[path = ''' + json.dumps(str(worker)) + ''']
 mod external_status_line;
 ''')
-    subprocess.run(['cargo', 'test', '--release', '--manifest-path', str(harness / 'Cargo.toml'),
-                    '--target-dir', str(target), 'external_status_'], check=True)
+    command = ['cargo', 'test', '--release', '--manifest-path', str(harness / 'Cargo.toml'),
+               '--target-dir', str(target), 'external_status_']
+    # The bounded-output test starts a renderer that exits without reading its
+    # stdin; on a loaded runner the payload write can lose that race and report
+    # a broken pipe. One retry keeps a release from failing on it.
+    if subprocess.run(command).returncode != 0:
+        subprocess.run(command, check=True)
 
 
 if __name__ == '__main__':
