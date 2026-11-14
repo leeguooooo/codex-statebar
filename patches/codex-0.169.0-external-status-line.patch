@@ -1,0 +1,968 @@
+diff --git a/codex-rs/tui/src/app/event_dispatch.rs b/codex-rs/tui/src/app/event_dispatch.rs
+index 881d272..7620188 100644
+--- a/codex-rs/tui/src/app/event_dispatch.rs
++++ b/codex-rs/tui/src/app/event_dispatch.rs
+@@ -193,6 +193,16 @@ impl App {
+             event => (event, None),
+         };
+         match event {
++            AppEvent::ExternalStatusLineUpdated { thread_id, line } => {
++                if self.chat_widget.thread_id() == thread_id
++                    && self.chat_widget.external_status_line_command().is_some()
++                {
++                    self.chat_widget.set_external_status_lines(
++                        line.as_deref().unwrap_or_default().lines().map(ansi_escape_line).collect(),
++                    );
++                    self.chat_widget.refresh_status_surfaces();
++                }
++            }
+             AppEvent::OpenDaemonMenu => self.open_daemon_menu(),
+             AppEvent::ConfirmDaemonRestart => self.confirm_daemon_restart(),
+             AppEvent::RunDaemonRestart => {
+diff --git a/codex-rs/tui/src/app_event.rs b/codex-rs/tui/src/app_event.rs
+index c858e81..354dc70 100644
+--- a/codex-rs/tui/src/app_event.rs
++++ b/codex-rs/tui/src/app_event.rs
+@@ -352,6 +352,11 @@ impl CapturedSideWork {
+ #[allow(clippy::large_enum_variant)]
+ #[derive(Debug, IntoStaticStr)]
+ pub(crate) enum AppEvent {
++    /// Bounded output from the current thread's external status renderer.
++    ExternalStatusLineUpdated {
++        thread_id: Option<ThreadId>,
++        line: Option<String>,
++    },
+     AccountEmailLoaded {
+         request_id: uuid::Uuid,
+         email: Option<String>,
+diff --git a/codex-rs/tui/src/app_event_sender.rs b/codex-rs/tui/src/app_event_sender.rs
+index cf3882a..3f93e61 100644
+--- a/codex-rs/tui/src/app_event_sender.rs
++++ b/codex-rs/tui/src/app_event_sender.rs
+@@ -62,7 +62,11 @@ impl AppEventSender {
+         }
+         // Record inbound events for high-fidelity session replay.
+         // Avoid double-logging Ops; those are logged at the point of submission.
+-        if !matches!(event, AppEvent::CodexOp(_)) {
++        // Renderer frames are transient UI state, not transcript events.
++        if !matches!(
++            event,
++            AppEvent::CodexOp(_) | AppEvent::ExternalStatusLineUpdated { .. }
++        ) {
+             session_log::log_inbound_app_event(&event);
+         }
+         if let Err(e) = self.app_event_tx.send(event) {
+diff --git a/codex-rs/tui/src/bottom_pane/chat_composer.rs b/codex-rs/tui/src/bottom_pane/chat_composer.rs
+index db3b79f..0ced32f 100644
+--- a/codex-rs/tui/src/bottom_pane/chat_composer.rs
++++ b/codex-rs/tui/src/bottom_pane/chat_composer.rs
+@@ -16,6 +16,7 @@
+ //! loss cancels the pending paste; a late clipboard result cannot overwrite newer input.
+ //! The live voice strip renders after effort ignition, followed by the Astra sparkle when eligible.
+ //! Owned transcripts keep persistent status below the composer and hints on a separate final row.
++//! External status rows share that measured surface (up to six rows); empty results restore native status.
+ //! Shortcut help expands above the composer, with its close hint replacing the final shortcuts row
+ //! so input and persistent status stay anchored when help opens or closes.
+ //! Escape dismisses visible shortcut help before editing, transcript backtracking, or interruption.
+@@ -795,6 +796,7 @@ impl ChatComposer {
+                 goal_status_indicator: None,
+                 ide_context_active: false,
+                 status_line_value: None,
++                external_status_lines: None,
+                 measured_status_line: Default::default(),
+                 wrapped_native_status: Default::default(),
+                 status_line_enabled: false,
+diff --git a/codex-rs/tui/src/bottom_pane/chat_composer/composer_layout.rs b/codex-rs/tui/src/bottom_pane/chat_composer/composer_layout.rs
+index 848a15c..70e39a0 100644
+--- a/codex-rs/tui/src/bottom_pane/chat_composer/composer_layout.rs
++++ b/codex-rs/tui/src/bottom_pane/chat_composer/composer_layout.rs
+@@ -241,19 +241,24 @@ impl ChatComposer {
+         let mut available = height
+             .saturating_sub(input_height)
+             .max(u16::from(editing_hint && height > 3));
+-        let cap = if options.separate_status_line {
+-            // Use the frame's budget so measurement and painting choose the same cap.
+-            let budget = options.max_height.unwrap_or(u16::MAX);
+-            (budget.saturating_add(2) / 4).clamp(2, MAX_FOOTER_ROWS)
+-        } else {
+-            2
+-        };
+         let wanted_hints = self.footer_hint_height(width, options);
+         // Find needs its query and result before the status line can use a row.
+         let find_active = options
+             .footer
+             .is_some_and(|footer| footer.cursor_column.is_some());
+         let reserved_hints = wanted_hints.min(if find_active { 2 } else { 1 });
++        // External rows share the host budget, yielding to input and reserved hints.
++        let cap = if self.footer.status_line_enabled
++            && self.footer.external_status_lines.is_some()
++            && !options.unfocused
++        {
++            status_surface::MAX_EXTERNAL_STATUS_ROWS as u16 + reserved_hints
++        } else if options.separate_status_line {
++            let budget = options.max_height.unwrap_or(u16::MAX);
++            (budget.saturating_add(2) / 4).clamp(2, MAX_FOOTER_ROWS)
++        } else {
++            2
++        };
+         let wanted_status = self.status_surface_height(
+             width,
+             available.min(cap).saturating_sub(reserved_hints),
+diff --git a/codex-rs/tui/src/bottom_pane/chat_composer/footer_state.rs b/codex-rs/tui/src/bottom_pane/chat_composer/footer_state.rs
+index 92124a0..a1f7a96 100644
+--- a/codex-rs/tui/src/bottom_pane/chat_composer/footer_state.rs
++++ b/codex-rs/tui/src/bottom_pane/chat_composer/footer_state.rs
+@@ -384,6 +384,7 @@ pub(super) struct FooterState {
+     pub(super) goal_status_indicator: Option<GoalStatusIndicator>,
+     pub(super) ide_context_active: bool,
+     pub(super) status_line_value: Option<FooterContent>,
++    pub(super) external_status_lines: Option<Vec<Line<'static>>>,
+     // Measurement bounds and occupied height, shared by layout and cursor placement.
+     pub(super) measured_status_line: std::cell::Cell<Option<(ratatui::layout::Size, u16)>>,
+     pub(super) wrapped_native_status:
+diff --git a/codex-rs/tui/src/bottom_pane/chat_composer/status_surface.rs b/codex-rs/tui/src/bottom_pane/chat_composer/status_surface.rs
+index f7baf4a..1eaaa23 100644
+--- a/codex-rs/tui/src/bottom_pane/chat_composer/status_surface.rs
++++ b/codex-rs/tui/src/bottom_pane/chat_composer/status_surface.rs
+@@ -6,7 +6,32 @@ use super::*;
+ 
+ use std::borrow::Cow;
+ 
++pub(super) const MAX_EXTERNAL_STATUS_ROWS: usize = 6;
++
+ impl ChatComposer {
++    /// Empty output restores the continuously updated native status.
++    pub(crate) fn set_external_status_lines(&mut self, lines: Vec<Line<'static>>) -> bool {
++        let lines = (!lines.is_empty()).then(|| {
++            lines
++                .into_iter()
++                .take(MAX_EXTERNAL_STATUS_ROWS)
++                .collect::<Vec<_>>()
++        });
++        if self.footer.external_status_lines == lines {
++            return false;
++        }
++        self.footer.external_status_lines = lines;
++        self.effort_status_line_transition = None;
++        true
++    }
++
++    fn external_status_lines(&self) -> Option<&[Line<'static>]> {
++        self.footer
++            .external_status_lines
++            .as_deref()
++            .filter(|_| self.footer.status_line_enabled)
++    }
++
+     pub(crate) fn set_status_line(&mut self, status_line: Option<FooterContent>) -> bool {
+         if self.footer.status_line_value == status_line {
+             return false;
+@@ -42,6 +67,20 @@ impl ChatComposer {
+         available: u16,
+         options: ComposerRenderOptions<'_>,
+     ) -> u16 {
++        if let Some(lines) = self.external_status_lines() {
++            let bounds = inset_footer_hint_area(Rect::new(0, 0, width, available));
++            return if bounds.width == 0 {
++                0
++            } else {
++                (lines.len() as u16)
++                    .min(bounds.height)
++                    .min(if options.unfocused {
++                        1
++                    } else {
++                        MAX_EXTERNAL_STATUS_ROWS as u16
++                    })
++            };
++        }
+         // The unfocused composer paints only the raw status, as one dim line.
+         let (available, status) = if options.unfocused {
+             let raw = self
+@@ -120,6 +159,26 @@ impl ChatComposer {
+         if area.is_empty() {
+             return;
+         }
++        if let Some(lines) = self.external_status_lines() {
++            if options.unfocused {
++                crate::bottom_pane::footer::render_unfocused_status(
++                    lines[0].to_string(),
++                    area,
++                    buf,
++                );
++            } else {
++                let area = inset_footer_hint_area(area);
++                for (index, line) in lines.iter().take(usize::from(area.height)).enumerate() {
++                    let row = Rect::new(area.x, area.y + index as u16, area.width, 1);
++                    crate::line_truncation::truncate_line_with_ellipsis_if_overflow(
++                        line.clone(),
++                        usize::from(row.width),
++                    )
++                    .render(row, buf);
++                }
++            }
++            return;
++        }
+         if options.unfocused {
+             if let Some(content) = self.status_line_content() {
+                 crate::bottom_pane::footer::render_unfocused_status(
+diff --git a/codex-rs/tui/src/bottom_pane/chat_composer/status_surface_tests.rs b/codex-rs/tui/src/bottom_pane/chat_composer/status_surface_tests.rs
+index 3350903..6e6eff0 100644
+--- a/codex-rs/tui/src/bottom_pane/chat_composer/status_surface_tests.rs
++++ b/codex-rs/tui/src/bottom_pane/chat_composer/status_surface_tests.rs
+@@ -1204,3 +1204,163 @@ fn activity_shortcut_help_follows_runtime_binding() {
+     }
+     insta::assert_snapshot!(snapshots.join("\n---\n"));
+ }
++
++#[test]
++fn external_status_rows_grow_render_and_restore_native_fallback() {
++    let mut composer = composer();
++    let options = ComposerRenderOptions::default();
++    let original = composer.desired_height_with_options(80, options);
++    composer.set_external_status_lines(vec![
++        Line::from("AURORA 73%"),
++        Line::from("project"),
++        Line::from("effort high"),
++    ]);
++    assert_eq!(composer.status_surface_height(80, 8, options), 3);
++    assert!(composer.desired_height_with_options(80, options) > original);
++    let (text, cursor) = render(&composer, 80, None);
++    assert!(text.contains("AURORA 73%"));
++    assert!(text.contains("project"));
++    assert!(text.contains("effort high"));
++    assert!(cursor.is_some());
++    composer.set_external_status_lines(vec![Line::from("row"); 100]);
++    assert_eq!(composer.status_surface_height(80, 8, options), 6);
++    composer.set_external_status_lines(Vec::new());
++    assert_eq!(composer.status_surface_height(80, 8, options), 1);
++    let (text, _) = render(&composer, 80, None);
++    assert!(text.contains("MODEL"));
++}
++
++#[test]
++fn external_status_geometry_focus_width_and_native_restoration() {
++    use ratatui::style::Modifier;
++    let mut composer = composer();
++    composer.set_external_status_lines(
++        (1..=100)
++            .map(|i| Line::from(format!("external-{i}")))
++            .collect(),
++    );
++    assert_eq!(
++        composer
++            .footer
++            .external_status_lines
++            .as_ref()
++            .unwrap()
++            .len(),
++        6
++    );
++    for separate_status_line in [false, true] {
++        let options = ComposerRenderOptions {
++            separate_status_line,
++            max_height: Some(32),
++            ..Default::default()
++        };
++        let (_, rows) = render_status(&composer, Rect::new(0, 0, 80, 32), options);
++        assert_eq!(rows.len(), 6);
++        assert_eq!(rows[5], "external-6");
++    }
++    for unfocused in [false, true, false] {
++        let options = ComposerRenderOptions {
++            separate_status_line: true,
++            unfocused,
++            ..Default::default()
++        };
++        let area = Rect::new(0, 0, 40, 16);
++        let (buf, rows) = render_status(&composer, area, options);
++        assert_eq!(rows.len(), if unfocused { 1 } else { 6 });
++        if unfocused {
++            let status = inset_footer_hint_area(composer.layout_with_options(area, options).status);
++            assert!(buf[(status.x, status.y)].modifier.contains(Modifier::DIM));
++        }
++    }
++    composer.set_external_status_lines(vec![
++        Line::from("ABCDEFGHIJKLM"),
++        Line::from("界界界界界界"),
++    ]);
++    for width in [0, 1, 2, 3, 8, 12, 40, 8] {
++        let area = Rect::new(0, 0, width, 2);
++        let mut buf = Buffer::empty(area);
++        composer.render_status_surface(area, &mut buf, Default::default());
++        assert_eq!(
++            composer.status_surface_height(width, 2, Default::default()),
++            if width == 0 { 0 } else { 2 }
++        );
++        if width > 0 {
++            let inner = inset_footer_hint_area(area);
++            let text: String = (inner.x..inner.right())
++                .map(|x| buf[(x, 0)].symbol())
++                .collect();
++            let expected = crate::line_truncation::truncate_line_with_ellipsis_if_overflow(
++                Line::from("ABCDEFGHIJKLM"),
++                usize::from(inner.width),
++            );
++            assert_eq!(text.trim_end(), expected.to_string());
++        }
++    }
++    composer.set_status_line(Some("UPDATED native status".into()));
++    composer.set_external_status_lines(Vec::new());
++    assert!(
++        render(&composer, 80, None)
++            .0
++            .contains("UPDATED native status")
++    );
++    composer.set_status_line_enabled(false);
++    assert_eq!(composer.status_surface_height(80, 8, Default::default()), 0);
++}
++
++#[test]
++fn external_status_preserves_input_cursor_and_find_in_short_terminals() {
++    let mut composer = composer();
++    composer.set_external_status_lines(vec![Line::from("external-row"); 6]);
++    composer.set_text_content("a\nb\nc".into(), Vec::new(), Vec::new());
++    composer.move_cursor_to_end();
++    for width in [12, 40] {
++        for height in [4, 5, 6, 8, 12, 32] {
++            let options = ComposerRenderOptions {
++                separate_status_line: true,
++                max_height: Some(height),
++                ..Default::default()
++            };
++            let area = Rect::new(0, 0, width, height);
++            let (buf, _) = render_status(&composer, area, options);
++            let layout = composer.layout_with_options(area, options);
++            assert!(layout.status.bottom() <= area.bottom());
++            assert!(layout.status.height <= 6);
++            assert!(layout.textarea.bottom() <= layout.status.y);
++            if height >= 8 {
++                assert!(layout.textarea.height >= 3);
++                let (x, y) = composer.cursor_pos_with_options(area, options).unwrap();
++                assert!(area.contains((x, y).into()));
++                assert!(buf.area.contains((x, y).into()));
++            }
++        }
++    }
++    composer.set_text_content(String::new(), Vec::new(), Vec::new());
++    let footer = TranscriptFooter {
++        text: vec![
++            Line::from("Find: needle"),
++            Line::from("Enter next · Esc close"),
++        ]
++        .into(),
++        cursor_column: Some(8),
++        is_interactive: true,
++    };
++    let options = ComposerRenderOptions {
++        separate_status_line: true,
++        footer: Some(&footer),
++        ..Default::default()
++    };
++    for (height, status_rows, hint_rows) in [(4, 0, 1), (5, 0, 2), (6, 1, 2)] {
++        let area = Rect::new(0, 0, 48, height);
++        let layout = composer.layout_with_options(area, options);
++        let mut buf = Buffer::empty(area);
++        composer.render_with_options(area, &mut buf, None, options);
++        assert_eq!(
++            (layout.status.height, layout.footer.height),
++            (status_rows, hint_rows)
++        );
++        assert_eq!(
++            composer.cursor_pos_with_options(area, options),
++            Some((10, layout.footer.y))
++        );
++    }
++}
+diff --git a/codex-rs/tui/src/bottom_pane/mod.rs b/codex-rs/tui/src/bottom_pane/mod.rs
+index a165ca1..f164913 100644
+--- a/codex-rs/tui/src/bottom_pane/mod.rs
++++ b/codex-rs/tui/src/bottom_pane/mod.rs
+@@ -2630,6 +2630,12 @@ impl BottomPane {
+         }
+     }
+ 
++    pub(crate) fn set_external_status_lines(&mut self, lines: Vec<Line<'static>>) {
++        if self.composer.set_external_status_lines(lines) {
++            self.request_redraw();
++        }
++    }
++
+     pub(crate) fn set_luna_reserve_active(&mut self, active: bool) {
+         if self.composer.set_luna_reserve_active(active) {
+             self.request_redraw();
+diff --git a/codex-rs/tui/src/chatwidget.rs b/codex-rs/tui/src/chatwidget.rs
+index e748352..9878957 100644
+--- a/codex-rs/tui/src/chatwidget.rs
++++ b/codex-rs/tui/src/chatwidget.rs
+@@ -731,6 +731,7 @@ pub(crate) struct ChatWidget {
+     feedback: codex_feedback::CodexFeedback,
+     // Current session rollout path (if known)
+     current_rollout_path: Option<PathBuf>,
++    external_status_line_runner: crate::external_status_line::ExternalStatusLineRunner,
+     // Current working directory (if known)
+     current_cwd: Option<PathBuf>,
+     // App-server-backed command runner for status-line workspace metadata lookups.
+@@ -1755,6 +1756,7 @@ impl ChatWidget {
+     pub(crate) fn on_terminal_resize(&mut self, width: u16) {
+         let had_rendered_width = self.last_rendered_width.get().is_some();
+         self.last_rendered_width.set(Some(width));
++        self.refresh_status_surfaces();
+         let stream_width = self.current_stream_width(/*reserved_cols*/ 2);
+         let plan_stream_width = self.current_stream_width(/*reserved_cols*/ 4);
+         if let Some(controller) = self.stream_controller.as_mut() {
+diff --git a/codex-rs/tui/src/chatwidget/constructor.rs b/codex-rs/tui/src/chatwidget/constructor.rs
+index 1ae4323..4c4f3a1 100644
+--- a/codex-rs/tui/src/chatwidget/constructor.rs
++++ b/codex-rs/tui/src/chatwidget/constructor.rs
+@@ -110,7 +110,7 @@ impl ChatWidget {
+             codex_op_target,
+             bottom_pane: BottomPane::new(BottomPaneParams {
+                 frame_requester,
+-                app_event_tx,
++                app_event_tx: app_event_tx.clone(),
+                 has_input_focus: true,
+                 enhanced_keys_supported,
+                 placeholder_text: placeholder.clone(),
+@@ -270,6 +270,9 @@ impl ChatWidget {
+             last_rendered_width: std::cell::Cell::new(None),
+             feedback,
+             current_rollout_path: None,
++            external_status_line_runner: crate::external_status_line::ExternalStatusLineRunner::new(
++                app_event_tx.clone(),
++            ),
+             current_cwd,
+             workspace_command_runner,
+             instruction_source_paths: Vec::new(),
+diff --git a/codex-rs/tui/src/chatwidget/session_flow.rs b/codex-rs/tui/src/chatwidget/session_flow.rs
+index 398fa00..23923b4 100644
+--- a/codex-rs/tui/src/chatwidget/session_flow.rs
++++ b/codex-rs/tui/src/chatwidget/session_flow.rs
+@@ -95,6 +95,10 @@ impl ChatWidget {
+         }
+         let connector_scope_changed = previous_thread_id != Some(session.thread_id)
+             || self.config.cwd.as_path() != session.cwd.as_path();
++        if connector_scope_changed {
++            self.external_status_line_runner.stop();
++            self.set_external_status_lines(Vec::new());
++        }
+         self.thread_id = Some(session.thread_id);
+         self.daybreak_enabled = self.config.features.enabled(Feature::CliDaybreak)
+             && session.daybreak_enabled
+diff --git a/codex-rs/tui/src/chatwidget/status_controls.rs b/codex-rs/tui/src/chatwidget/status_controls.rs
+index 4d947a9..66e1d08 100644
+--- a/codex-rs/tui/src/chatwidget/status_controls.rs
++++ b/codex-rs/tui/src/chatwidget/status_controls.rs
+@@ -84,6 +84,10 @@ impl ChatWidget {
+     }
+ 
+     /// Sets the currently rendered footer status-line value.
++    pub(crate) fn set_external_status_lines(&mut self, lines: Vec<Line<'static>>) {
++        self.bottom_pane.set_external_status_lines(lines);
++    }
++
+     pub(crate) fn set_status_line(&mut self, status_line: Option<FooterContent>) {
+         self.bottom_pane.set_status_line(status_line);
+     }
+diff --git a/codex-rs/tui/src/chatwidget/status_surfaces.rs b/codex-rs/tui/src/chatwidget/status_surfaces.rs
+index c7109c6..6493c5d 100644
+--- a/codex-rs/tui/src/chatwidget/status_surfaces.rs
++++ b/codex-rs/tui/src/chatwidget/status_surfaces.rs
+@@ -202,6 +202,18 @@ impl ChatWidget {
+     }
+ 
+     fn refresh_status_line_from_selections(&mut self, selections: &StatusSurfaceSelections) {
++        if let Some(command) = self.external_status_line_command() {
++            let width = self.last_rendered_width.get().unwrap_or(80);
++            let width = if width > 2 { width - 2 } else { width.max(1) };
++            let payload = self.external_status_line_payload(width);
++            let cwd = self.status_line_cwd().to_path_buf();
++            self.external_status_line_runner
++                .request(command, payload, cwd, self.thread_id, width);
++        } else {
++            self.external_status_line_runner.stop();
++            self.set_external_status_lines(Vec::new());
++        }
++        // Continue updating the native line as an immediate error/timeout fallback.
+         let enabled = !selections.status_line_items.is_empty();
+         self.bottom_pane.set_status_line_enabled(enabled);
+         if !enabled {
+@@ -468,7 +480,61 @@ impl ChatWidget {
+         parse_items_with_invalids(self.configured_status_line_items())
+     }
+ 
++    pub(crate) fn external_status_line_command(&self) -> Option<Vec<String>> {
++        let items = self.local_settings.tui.status_line.as_ref();
++        if items.is_some_and(Vec::is_empty) {
++            return None;
++        }
++        if let Some(items) = items
++            && items.first().map(String::as_str) == Some("command")
++            && items.len() > 1
++        {
++            return Some(items[1..].to_vec());
++        }
++        let value = std::env::var("CODEX_STATEBAR_STATUS_COMMAND").ok()?;
++        let command: Vec<String> = serde_json::from_str(&value).ok()?;
++        (!command.is_empty()).then_some(command)
++    }
++
++    pub(super) fn external_status_line_payload(&self, width: u16) -> String {
++        let cwd = self.status_line_cwd();
++        let size = self.status_line_context_window_size();
++        let used = self.status_line_context_used_percent();
++        let snapshot = self.rate_limit_snapshots_by_limit_id.get("codex");
++        let window_payload = |(window, _): (&RateLimitWindowDisplay, bool)| serde_json::json!({"used_percent": window.used_percent, "window_minutes": window.window_minutes, "resets_at": window.resets_at_unix});
++        let five_hour = snapshot
++            .and_then(five_hour_status_window)
++            .map(window_payload);
++        let weekly = snapshot.and_then(weekly_status_window).map(window_payload);
++        serde_json::json!({
++            "_codex_live": true,
++            "thread_id": self.thread_id.map(|id| id.to_string()),
++            "rollout_path": self.current_rollout_path.as_ref().map(|path| path.to_string_lossy()),
++            "cwd": cwd,
++            "model": {"id": self.current_model(), "display_name": self.model_display_name()},
++            "reasoning_effort": self.effective_reasoning_effort(),
++            "fast_mode": self.current_service_tier() == Some(ServiceTier::Fast.request_value()),
++            "codex_version": CODEX_CLI_VERSION,
++            "terminal_columns": width,
++            "context": {"window_tokens": size, "used_percent": used},
++            "limits": {"five_hour": five_hour, "weekly": weekly},
++        })
++        .to_string()
++    }
++
+     pub(super) fn configured_status_line_items(&self) -> Vec<String> {
++        if self
++            .local_settings
++            .tui
++            .status_line
++            .as_ref()
++            .is_some_and(|items| items.first().map(String::as_str) == Some("command"))
++        {
++            return DEFAULT_STATUS_LINE_ITEMS
++                .iter()
++                .map(ToString::to_string)
++                .collect();
++        }
+         self.local_settings
+             .tui
+             .status_line
+diff --git a/codex-rs/tui/src/chatwidget/tests/status_surface_previews.rs b/codex-rs/tui/src/chatwidget/tests/status_surface_previews.rs
+index 70d000f..2fdd3da 100644
+--- a/codex-rs/tui/src/chatwidget/tests/status_surface_previews.rs
++++ b/codex-rs/tui/src/chatwidget/tests/status_surface_previews.rs
+@@ -584,3 +584,53 @@ async fn terminal_title_preview_uses_title_truncation_for_live_values() {
+ 
+     assert_eq!(preview, format!("{truncated_thread} | {truncated_branch}"));
+ }
++
++#[tokio::test]
++async fn external_status_payload_preserves_quota_without_rollout() {
++    let (mut chat, _rx, _op_rx) = make_chatwidget_manual(None).await;
++    assert!(chat.current_rollout_path.is_none());
++    for swapped in [false, true] {
++        let short = RateLimitWindow {
++            used_percent: 100,
++            window_duration_mins: Some(300),
++            resets_at: Some(2_000_000_000),
++        };
++        let long = RateLimitWindow {
++            used_percent: 19,
++            window_duration_mins: Some(10_080),
++            resets_at: Some(2_000_100_000),
++        };
++        let (primary, secondary) = if swapped {
++            (long, short)
++        } else {
++            (short, long)
++        };
++        chat.on_rate_limit_snapshot(Some(RateLimitSnapshot {
++            limit_id: None,
++            limit_name: None,
++            normal_model_slug: None,
++            primary: Some(primary),
++            secondary: Some(secondary),
++            credits: None,
++            individual_limit: None,
++            plan_type: None,
++            spend_control_reached: None,
++            rate_limit_reached_type: None,
++        }));
++        let payload: serde_json::Value =
++            serde_json::from_str(&chat.external_status_line_payload(118)).unwrap();
++        assert_eq!(
++            payload["limits"]["five_hour"],
++            serde_json::json!({"used_percent":100.0,"window_minutes":300,"resets_at":2_000_000_000i64})
++        );
++        assert_eq!(
++            payload["limits"]["weekly"],
++            serde_json::json!({"used_percent":19.0,"window_minutes":10_080,"resets_at":2_000_100_000i64})
++        );
++    }
++    chat.on_rate_limit_snapshot(None);
++    let payload: serde_json::Value =
++        serde_json::from_str(&chat.external_status_line_payload(118)).unwrap();
++    assert!(payload["limits"]["five_hour"].is_null());
++    assert!(payload["limits"]["weekly"].is_null());
++}
+diff --git a/codex-rs/tui/src/external_status_line.rs b/codex-rs/tui/src/external_status_line.rs
+new file mode 100644
+index 0000000..1b1ce70
+--- /dev/null
++++ b/codex-rs/tui/src/external_status_line.rs
+@@ -0,0 +1,273 @@
++//! Bounded, cancellable external renderer for the persistent footer.
++//! One worker and one latest request per widget; no queued subprocesses or output logs.
++
++use std::path::PathBuf;
++use std::process::Stdio;
++use std::sync::{Arc, Mutex};
++use std::time::{Duration, Instant};
++
++use codex_protocol::ThreadId;
++use tokio::io::{AsyncReadExt, AsyncWriteExt};
++
++use crate::app_event::AppEvent;
++use crate::app_event_sender::AppEventSender;
++
++const TIMEOUT: Duration = Duration::from_secs(5);
++const REFRESH: Duration = Duration::from_secs(1);
++const UNCHANGED_REFRESH: Duration = Duration::from_secs(5);
++const IDLE_EXPIRY: Duration = Duration::from_secs(5);
++const MAX_OUTPUT: u64 = 32 * 1024;
++const MAX_ROWS: usize = 6;
++
++#[derive(Clone, Debug)]
++struct Request {
++    command: Vec<String>,
++    payload: String,
++    cwd: PathBuf,
++    thread_id: Option<ThreadId>,
++    width: u16,
++    updated: Instant,
++}
++
++#[derive(Debug)]
++pub(crate) struct ExternalStatusLineRunner {
++    latest: Arc<Mutex<Option<Request>>>,
++    task: Option<tokio::task::JoinHandle<()>>,
++    sender: AppEventSender,
++}
++
++impl ExternalStatusLineRunner {
++    pub(crate) fn new(sender: AppEventSender) -> Self {
++        Self {
++            latest: Arc::new(Mutex::new(None)),
++            task: None,
++            sender,
++        }
++    }
++
++    pub(crate) fn stop(&mut self) {
++        if let Some(task) = self.task.take() {
++            task.abort();
++        }
++        *self.latest.lock().expect("status renderer lock") = None;
++    }
++
++    pub(crate) fn request(
++        &mut self,
++        command: Vec<String>,
++        payload: String,
++        cwd: PathBuf,
++        thread_id: Option<ThreadId>,
++        width: u16,
++    ) {
++        *self.latest.lock().expect("status renderer lock") = Some(Request {
++            command,
++            payload,
++            cwd,
++            thread_id,
++            width,
++            updated: Instant::now(),
++        });
++        if self.task.as_ref().is_some_and(|task| !task.is_finished()) {
++            return;
++        }
++        let latest = Arc::clone(&self.latest);
++        let sender = self.sender.clone();
++        self.task = Some(tokio::spawn(async move {
++            let mut cached: Option<(Request, String, Instant)> = None;
++            loop {
++                let request = latest.lock().expect("status renderer lock").clone();
++                let Some(request) = request else { break };
++                // Parked threads stop polling; only the displayed widget refreshes this lease.
++                if request.updated.elapsed() > IDLE_EXPIRY {
++                    break;
++                }
++                let reusable = cached.as_ref().filter(|(previous, _, at)| {
++                    at.elapsed() < UNCHANGED_REFRESH
++                        && previous.command == request.command
++                        && previous.payload == request.payload
++                        && previous.cwd == request.cwd
++                        && previous.width == request.width
++                        && previous.thread_id == request.thread_id
++                });
++                let line = if let Some((_, output, _)) = reusable {
++                    Some(output.clone())
++                } else {
++                    let output = run_request(&request, TIMEOUT).await.ok();
++                    cached = output
++                        .as_ref()
++                        .map(|line| (request.clone(), line.clone(), Instant::now()));
++                    output
++                };
++                sender.send(AppEvent::ExternalStatusLineUpdated {
++                    thread_id: request.thread_id,
++                    line,
++                });
++                tokio::time::sleep(REFRESH).await;
++            }
++        }));
++    }
++}
++
++impl Drop for ExternalStatusLineRunner {
++    fn drop(&mut self) {
++        self.stop();
++    }
++}
++
++async fn run_request(request: &Request, timeout: Duration) -> Result<String, String> {
++    tokio::time::timeout(timeout, async {
++        let program = request.command.first().ok_or("empty renderer command")?;
++        let mut child = tokio::process::Command::new(program)
++            .args(&request.command[1..])
++            .current_dir(&request.cwd)
++            .env("CODEX_STATUS_LINE", "1")
++            .env("COLUMNS", request.width.to_string())
++            .kill_on_drop(true)
++            .stdin(Stdio::piped())
++            .stdout(Stdio::piped())
++            .stderr(Stdio::null())
++            .spawn()
++            .map_err(|e| e.to_string())?;
++        if let Some(mut input) = child.stdin.take() {
++            input
++                .write_all(request.payload.as_bytes())
++                .await
++                .map_err(|e| e.to_string())?;
++        }
++        let output = child.stdout.take().ok_or("missing renderer stdout")?;
++        let mut bytes = Vec::new();
++        output
++            .take(MAX_OUTPUT + 1)
++            .read_to_end(&mut bytes)
++            .await
++            .map_err(|e| e.to_string())?;
++        if bytes.len() as u64 > MAX_OUTPUT {
++            return Err("renderer output exceeds 32 KiB".to_string());
++        }
++        if !child.wait().await.map_err(|e| e.to_string())?.success() {
++            return Err("renderer exited unsuccessfully".to_string());
++        }
++        Ok(String::from_utf8_lossy(&bytes)
++            .lines()
++            .take(MAX_ROWS)
++            .collect::<Vec<_>>()
++            .join("\n"))
++    })
++    .await
++    .map_err(|_| "renderer timed out".to_string())?
++}
++
++#[cfg(all(test, unix))]
++mod tests {
++    use super::*;
++    fn request(script: &str) -> Request {
++        Request {
++            command: vec!["/bin/sh".into(), "-c".into(), script.into()],
++            payload: "one\ntwo\nthree\nfour\nfive\nsix\nseven\n".into(),
++            cwd: std::env::temp_dir(),
++            thread_id: None,
++            width: 77,
++            updated: Instant::now(),
++        }
++    }
++
++    #[tokio::test]
++    async fn external_status_output_and_row_count_are_bounded() {
++        assert_eq!(
++            run_request(&request("cat"), TIMEOUT).await.unwrap(),
++            "one\ntwo\nthree\nfour\nfive\nsix"
++        );
++        assert!(
++            run_request(&request("yes x | head -c 65536"), TIMEOUT)
++                .await
++                .is_err()
++        );
++        assert_eq!(
++            run_request(&request("printf '%s' \"$COLUMNS\""), TIMEOUT)
++                .await
++                .unwrap(),
++            "77"
++        );
++    }
++
++    #[tokio::test]
++    async fn external_status_timeout_and_failure_restore_native_fallback() {
++        assert!(
++            run_request(&request("exec sleep 30"), Duration::from_millis(50))
++                .await
++                .is_err()
++        );
++        assert!(run_request(&request("exit 1"), TIMEOUT).await.is_err());
++    }
++
++    #[tokio::test]
++    async fn external_status_coalesces_requests_and_stops_on_drop() {
++        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
++        let mut runner = ExternalStatusLineRunner::new(AppEventSender::new(tx));
++        for _ in 0..1000 {
++            runner.request(
++                vec![
++                    "/bin/sh".into(),
++                    "-c".into(),
++                    "cat >/dev/null; printf frame".into(),
++                ],
++                "{}".into(),
++                std::env::temp_dir(),
++                None,
++                80,
++            );
++        }
++        tokio::time::timeout(Duration::from_secs(2), rx.recv())
++            .await
++            .unwrap()
++            .unwrap();
++        assert!(rx.try_recv().is_err());
++        drop(runner);
++        assert!(
++            tokio::time::timeout(Duration::from_secs(2), rx.recv())
++                .await
++                .unwrap()
++                .is_none()
++        );
++    }
++
++    #[tokio::test]
++    async fn external_status_reuses_unchanged_frames_but_refreshes_new_payloads() {
++        let directory = tempfile::tempdir().unwrap();
++        let counter = directory.path().join("calls");
++        let script = format!(
++            "cat >/dev/null; printf run >> '{}'; printf frame",
++            counter.display()
++        );
++        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
++        let mut runner = ExternalStatusLineRunner::new(AppEventSender::new(tx));
++        let input = request(&script);
++        for _ in 0..3 {
++            runner.request(
++                input.command.clone(),
++                input.payload.clone(),
++                input.cwd.clone(),
++                None,
++                77,
++            );
++            tokio::time::timeout(Duration::from_secs(3), rx.recv())
++                .await
++                .unwrap()
++                .unwrap();
++        }
++        assert_eq!(std::fs::read_to_string(&counter).unwrap(), "run");
++        runner.request(
++            input.command.clone(),
++            "changed".into(),
++            input.cwd.clone(),
++            None,
++            77,
++        );
++        tokio::time::timeout(Duration::from_secs(3), rx.recv())
++            .await
++            .unwrap()
++            .unwrap();
++        assert_eq!(std::fs::read_to_string(&counter).unwrap(), "runrun");
++    }
++}
+diff --git a/codex-rs/tui/src/lib.rs b/codex-rs/tui/src/lib.rs
+index 8b3608c..d00c9ff 100644
+--- a/codex-rs/tui/src/lib.rs
++++ b/codex-rs/tui/src/lib.rs
+@@ -181,6 +181,7 @@ pub(crate) mod live_wrap;
+ mod local_settings;
+ mod rendered_selection;
+ pub use live_wrap::RowBuilder;
++mod external_status_line;
+ mod local_chatgpt_auth;
+ mod managed_new_thread_defaults;
+ mod markdown;
+diff --git a/codex-rs/tui/src/status/rate_limits.rs b/codex-rs/tui/src/status/rate_limits.rs
+index c22868b..f541998 100644
+--- a/codex-rs/tui/src/status/rate_limits.rs
++++ b/codex-rs/tui/src/status/rate_limits.rs
+@@ -72,6 +72,8 @@ pub(crate) struct RateLimitWindowDisplay {
+     pub used_percent: f64,
+     /// Human-readable local reset time.
+     pub resets_at: Option<String>,
++    /// Original reset epoch for external consumers; never parse display text.
++    pub resets_at_unix: Option<i64>,
+     /// Window length in minutes when provided by the server.
+     pub window_minutes: Option<i64>,
+ }
+@@ -92,6 +94,7 @@ impl RateLimitWindowDisplay {
+         Self {
+             used_percent: f64::from(window.used_percent),
+             resets_at,
++            resets_at_unix: window.resets_at,
+             window_minutes: window.window_duration_mins,
+         }
+     }
+@@ -460,6 +463,7 @@ mod tests {
+         RateLimitWindowDisplay {
+             used_percent,
+             resets_at: Some("soon".to_string()),
++            resets_at_unix: None,
+             window_minutes: Some(300),
+         }
+     }
+@@ -522,11 +526,13 @@ mod tests {
+             primary: Some(RateLimitWindowDisplay {
+                 used_percent: 20.0,
+                 resets_at: Some("soon".to_string()),
++                resets_at_unix: None,
+                 window_minutes: Some(60),
+             }),
+             secondary: Some(RateLimitWindowDisplay {
+                 used_percent: 40.0,
+                 resets_at: Some("later".to_string()),
++                resets_at_unix: None,
+                 window_minutes: Some(2 * 60),
+             }),
+             credits: None,
+diff --git a/codex-rs/tui/src/status/tests.rs b/codex-rs/tui/src/status/tests.rs
+index c51f429..6786966 100644
+--- a/codex-rs/tui/src/status/tests.rs
++++ b/codex-rs/tui/src/status/tests.rs
+@@ -70,6 +70,7 @@ fn stale_monthly_limit_marks_fresh_rolling_snapshot_stale() {
+         primary: Some(RateLimitWindowDisplay {
+             used_percent: 20.0,
+             resets_at: Some("soon".to_string()),
++            resets_at_unix: None,
+             window_minutes: Some(300),
+         }),
+         secondary: None,
+@@ -1901,11 +1902,13 @@ async fn transcript_overlay_remeasures_status_after_rate_limit_refresh() {
+             primary: Some(RateLimitWindowDisplay {
+                 used_percent: 45.0,
+                 resets_at: Some("soon".to_string()),
++                resets_at_unix: None,
+                 window_minutes: Some(300),
+             }),
+             secondary: Some(RateLimitWindowDisplay {
+                 used_percent: 30.0,
+                 resets_at: Some("later".to_string()),
++                resets_at_unix: None,
+                 window_minutes: Some(10_080),
+             }),
+             credits: None,

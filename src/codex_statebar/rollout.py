@@ -384,13 +384,22 @@ def collect_status(data: Optional[dict] = None) -> Dict[str, Any]:
         for key in ("context_used_pct", "context_remaining_pct", "context_window_size"):
             if key in live:
                 out[key] = live[key]
-        if "rate_limit_7d_pct" in live:
-            out["rate_limit_7d_pct"] = live["rate_limit_7d_pct"]
-            reset = _finite_number(out.get("rate_limit_7d_resets_at"))
-            if reset is not None and reset <= time.time():
-                # A fresh TUI reading may precede the new window's rollout
-                # event. Do not pair it with the previous window's reset.
-                out["rate_limit_7d_resets_at"] = None
+        for window, suffix in (("five_hour", ""), ("weekly", "_7d")):
+            pct_key = f"rate_limit{suffix}_pct"
+            reset_key = f"rate_limit{suffix}_resets_at"
+            if pct_key not in live:
+                continue
+            out[pct_key] = live[pct_key]
+            if reset_key in live:
+                out[reset_key] = live[reset_key]
+            else:
+                supplied = (data.get("limits") or {}).get(window)
+                reset = _finite_number(out.get(reset_key))
+                if ((isinstance(supplied, dict) and "resets_at" in supplied)
+                        or (reset is not None and reset <= time.time())):
+                    # Explicitly missing live resets must not borrow old rollout
+                    # timestamps; retain valid resets for legacy percent-only payloads.
+                    out[reset_key] = None
 
     out["model_id"] = out.get("model_id") or "unknown"
     out["display_name"] = out.get("display_name") or out["model_id"]
