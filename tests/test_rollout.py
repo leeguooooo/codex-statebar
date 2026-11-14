@@ -249,3 +249,37 @@ def test_live_fast_mode_is_explicit_and_strict(tmp_path, monkeypatch, value, exp
 
 def test_old_live_payload_reports_unknown_fast_mode():
     assert rollout.collect_status({'_codex_live': True})['fast_mode'] == 'unknown'
+
+
+def test_live_complete_quota_without_rollout(monkeypatch):
+    def forbidden(*args, **kwargs):
+        raise AssertionError("fresh TUI must not read another session")
+    monkeypatch.setattr(rollout, "find_rollout", forbidden)
+    status = rollout.collect_status({"_codex_live": True, "limits": {
+        "five_hour": {"used_percent": 100, "resets_at": 2000000000},
+        "weekly": {"used_percent": 19, "resets_at": 2000100000},
+    }})
+    assert status["rate_limit_pct"] == 100
+    assert status["rate_limit_resets_at"] == 2000000000
+    assert status["rate_limit_7d_pct"] == 19
+    assert status["rate_limit_7d_resets_at"] == 2000100000
+
+
+def test_live_both_windows_override_rollout(tmp_path, monkeypatch):
+    home = tmp_path / ".codex"
+    _write_rollout(home / "sessions/rollout-thread-1.jsonl", str(tmp_path))
+    monkeypatch.setenv("CODEX_HOME", str(home))
+    payload = {"_codex_live": True, "thread_id": "thread-1", "limits": {
+        "five_hour": {"used_percent": 100, "resets_at": 2000200000},
+        "weekly": {"used_percent": 19, "resets_at": 2000300000},
+    }}
+    status = rollout.collect_status(payload)
+    assert status["rate_limit_pct"] == 100
+    assert status["rate_limit_resets_at"] == 2000200000
+    assert status["rate_limit_7d_pct"] == 19
+    assert status["rate_limit_7d_resets_at"] == 2000300000
+    for window in payload["limits"].values():
+        window["resets_at"] = None
+    status = rollout.collect_status(payload)
+    assert status["rate_limit_resets_at"] is None
+    assert status["rate_limit_7d_resets_at"] is None

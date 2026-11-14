@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="${CODEX_VERSION:-0.167.2}"
+VERSION="${CODEX_VERSION:-0.169.0}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_ROOT="${CODEX_BUILD_ROOT:-$ROOT/build/codex-$VERSION}"
 SOURCE_DIR="$BUILD_ROOT/source"
 ARCHIVE="$BUILD_ROOT/codex-$VERSION.tar.gz"
 CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$BUILD_ROOT/target}"
 PATCH_FILES=(
-  "$ROOT/patches/codex-0.167.2-external-status-line.patch"
+  "$ROOT/patches/codex-0.169.0-external-status-line.patch"
 )
 OUTPUT_DIR="${CODEX_OUTPUT_DIR:-$ROOT/dist}"
 
-if [[ "$VERSION" != "0.167.2" ]]; then
-  echo "error: this patch targets Codex 0.167.2, got $VERSION" >&2
+if [[ "$VERSION" != "0.169.0" ]]; then
+  echo "error: this patch targets Codex 0.169.0, got $VERSION" >&2
   exit 2
 fi
 

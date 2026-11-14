@@ -81,9 +81,9 @@ cxs doctor</pre>
     <aside>When the <code>codex</code> launcher picks a compatible patched build, it turns on the embedded rich status bar with your chosen style; there is no need to run watch in another terminal. When the official Codex is more than one patch release ahead of the patched build, it switches to the official one and its native status line.</aside>
     <pre>cxs --setup</pre>
     <p>The native fallback shows model, directory, Git branch, context remaining, weekly limit and Fast state. The native settings stay in config.toml; the external command is passed only to the patched process by the launcher, so switching to the official Codex later leaves no incompatible configuration behind. Restart the Codex CLI after installing or upgrading.</p>
-    <p>The current patch targets <code>rust-v0.167.2</code>. After installing, just run <code>codex</code>: the status bar takes its own measured area of up to 6 lines under the input box, and reflows to the actual available width when the window narrows. If the command times out, fails or prints too much, the native status line is shown instead. <code>cxs doctor</code> checks which version was picked and how it is wired.</p>
+    <p>The current patch targets <code>rust-v0.169.0</code>. After installing, just run <code>codex</code>: the status bar takes its own measured area of up to 6 lines under the input box, and reflows to the actual available width when the window narrows. If the command times out, fails or prints too much, the native status line is shown instead. <code>cxs doctor</code> checks which version was picked and how it is wired.</p>
     <p>Progress on an upstream extension point: <a href="https://github.com/openai/codex/issues/17827">openai/codex#17827</a>.</p>
-    <p>In a new Codex CLI session, send at least one message before Codex creates a readable rollout. Until then <code>cxs</code> asks you to finish the first turn; it never falls back to a Desktop session in the same directory.</p>
+    <p>Before a new session has a readable rollout, the embedded bar can show quota windows and reset countdowns already known to Codex. Session usage still needs the first turn to create a rollout. <code>cxs</code> never borrows a Desktop session in the same directory.</p>
   </section>
 
   <section>
@@ -115,7 +115,7 @@ cxs doctor</pre>
 python -m pytest -q
 python -m compileall -q src
 cxs --no-color
-patch --dry-run -d /path/to/codex -p1 &lt; patches/codex-0.167.2-external-status-line.patch
+patch --dry-run -d /path/to/codex -p1 &lt; patches/codex-0.169.0-external-status-line.patch
 cargo check -p codex-tui</pre>
   </section>
 <p>Official reset announcements appear at the end of the first line, distinguishing completed resets, scheduled announcements awaiting execution, and AI forecasts. They do not confirm credit in your own account. Announced times are approximate: once your own quota windows restart early, the line switches to a highlighted <code>✓ Quota reset · seen …</code> and stops showing the countdown. Reset messages follow the system language in Simplified Chinese, Traditional Chinese, English, Japanese or Korean. Use <code>cxs config set lang auto</code>, or select <code>zh</code>, <code>zh-TW</code>, <code>en</code>, <code>ja</code> or <code>ko</code>. Disable the line and background refresh with <code>cxs config set show_resets false</code>. The <a href="https://codex-resets.com/api/docs">Codex Resets API</a> is refreshed in the background every five minutes; rendering never waits for network access.</p>

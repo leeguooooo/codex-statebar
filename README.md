@@ -52,7 +52,7 @@ Visual settings come from `~/.codex/codex-statebar.json` first. Without a Codex-
 
 ## Embedded in the Codex TUI
 
-The installer configures everything; open a new terminal and run `codex`. The current patch targets Codex 0.167.2, and Aurora and the other multi-line styles appear under the input box. `config.toml` keeps the native fields as a fallback, and the rich status command is passed only to the selected patched process. If the official Codex is more than one patch release ahead of the patched build, the launcher prefers the official one.
+The installer configures everything; open a new terminal and run `codex`. The current patch targets Codex 0.169.0, and Aurora and the other multi-line styles appear under the input box. `config.toml` keeps the native fields as a fallback, and the rich status command is passed only to the selected patched process. If the official Codex is more than one patch release ahead of the patched build, the launcher prefers the official one.
 
 ## New looks, worktrees and OCS
 
