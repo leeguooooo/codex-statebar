@@ -10,8 +10,13 @@ on:
         type: boolean
         default: false
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: write
+  actions: read
 
 # libgit2 drops long submodule clones (v8 → chromium icu); system git retries cleanly.
 env:
@@ -23,8 +28,11 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       source_tag: ${{ steps.find.outputs.source_tag }}
+      source_run: ${{ steps.artifacts.outputs.source_run }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - id: find
         env:
           GH_TOKEN: ${{ github.token }}
@@ -53,8 +61,15 @@ jobs:
           if [[ -n "$source_tag" ]]; then
             echo "Reusing patched Codex assets from $source_tag"
           else
-            echo "No matching patched Codex assets found; a cold build is required"
+            echo "No matching release assets found; checking recoverable CI artifacts"
           fi
+
+      - name: Find recoverable compiled artifacts
+        id: artifacts
+        if: steps.find.outputs.source_tag == ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/find_codex_artifacts.py
 
   build:
     strategy:
@@ -77,6 +92,7 @@ jobs:
             target: windows-x86_64
             binary: cxs.exe
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -146,10 +162,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        if: needs.find-patched-codex.outputs.source_run == ''
         with:
           toolchain: 1.99.1
           targets: ${{ matrix.cross }}
       - uses: actions/cache/restore@v4
+        if: needs.find-patched-codex.outputs.source_run == ''
         with:
           path: |
             ~/.cargo/registry
@@ -158,7 +176,30 @@ jobs:
           key: codex-${{ matrix.target }}-${{ hashFiles('patches/codex-*.patch', 'scripts/build-patched-codex.sh') }}
           restore-keys: codex-${{ matrix.target }}-
       - run: ./scripts/build-patched-codex.sh
+        if: needs.find-patched-codex.outputs.source_run == ''
+      - name: Recover matching compiled Codex
+        if: needs.find-patched-codex.outputs.source_run != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: codex-cxs-${{ matrix.target }}
+          path: recovered
+          run-id: ${{ needs.find-patched-codex.outputs.source_run }}
+          github-token: ${{ github.token }}
+      - name: Check and unpack recovered Codex
+        if: needs.find-patched-codex.outputs.source_run != ''
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          cd recovered
+          python3 -c "import hashlib,pathlib,sys; p=pathlib.Path(sys.argv[1]); fields=pathlib.Path(str(p)+'.sha256').read_text().split(); assert fields == [hashlib.sha256(p.read_bytes()).hexdigest(), p.name]" "codex-cxs-$TARGET.tar.gz"
+          mkdir -p ../dist
+          tar -xzf "codex-cxs-$TARGET.tar.gz" -C ../dist
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
       - if: ${{ !matrix.cross }}
+        timeout-minutes: 3
         run: python3 scripts/verify_embedded_codex.py dist/codex-cxs
       - shell: bash
         run: |
@@ -173,10 +214,10 @@ jobs:
             codex-cxs-${{ matrix.target }}.tar.gz
             codex-cxs-${{ matrix.target }}.tar.gz.sha256
       - name: Keep only dependency artifacts in the cache
-        if: always()
+        if: always() && needs.find-patched-codex.outputs.source_run == ''
         run: python3 scripts/prune_codex_target.py build/codex/source/codex-rs/Cargo.toml build/target || true
       - uses: actions/cache/save@v4
-        if: always()
+        if: always() && needs.find-patched-codex.outputs.source_run == ''
         with:
           path: |
             ~/.cargo/registry
@@ -187,7 +228,7 @@ jobs:
   verify-intel-codex:
     needs: build-patched-codex
     runs-on: macos-15-intel
-    timeout-minutes: 30
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -198,7 +239,11 @@ jobs:
           cd intel && shasum -a 256 -c codex-cxs-macos-x86_64.tar.gz.sha256
           tar -xzf codex-cxs-macos-x86_64.tar.gz
           ./codex-cxs --version
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
       - run: python3 scripts/verify_embedded_codex.py intel/codex-cxs
+        timeout-minutes: 3
 
   release:
     needs: [find-patched-codex, build, build-patched-codex, verify-intel-codex]
@@ -253,6 +298,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
+          # shellcheck disable=SC2016
           CODEX_VERSION=$(sed -n 's/^VERSION="\${CODEX_VERSION:-\([0-9.]*\)}"$/\1/p' scripts/build-patched-codex.sh)
           test -n "$CODEX_VERSION"
           # Codex runs every tool call through codex-code-mode-host, resolved

@@ -461,7 +461,9 @@ def codex_follow_note() -> str:
         f"Codex itself was not upgraded: the patched build is still {text(current)} "
         f"and Codex {text(newest)} is out. No cxs release carries a patched "
         f"{text(newest)} yet; it is installed automatically once published, "
-        f"usually within a few hours. {meanwhile}"
+        f"after its release checks pass. If this persists, check "
+        f"https://github.com/leeguooooo/codex-statebar/actions/workflows/codex-follow.yml. "
+        f"{meanwhile}"
     )
 
 
