@@ -9,6 +9,8 @@ import re
 import select
 import signal
 import struct
+import subprocess
+import sys
 import tempfile
 import termios
 import time
@@ -17,7 +19,7 @@ import time
 ANSI = re.compile(rb'\x1b\[[0-?]*[ -/]*[@-~]')
 
 
-def verify(binary, expect_native=False, fast=False):
+def verify(binary, expect_native=False, fast=False, timeout=30):
     binary = str(Path(binary).resolve())
     with tempfile.TemporaryDirectory(prefix='codex-footer-acceptance-') as directory:
         root = Path(directory)
@@ -59,17 +61,28 @@ print("AURORA_MODE_LINE")
         environment.update(HOME=str(home), CODEX_HOME=str(codex), TERM='xterm-256color',
                            EXPECT_FAST='1' if fast else '0', FAST_PROBE_PATH=str(root / 'fast-state.json'),
                            CODEX_STATEBAR_STATUS_COMMAND=json.dumps([__import__('sys').executable, str(renderer)]))
-        pid, master = pty.fork()
-        if pid == 0:
-            os.chdir(project)
-            os.execve(binary, [binary, '--no-daemon', '--no-alt-screen'], environment)
+        # Execute terminal setup in a fresh interpreter. pty.fork() can hang on
+        # macOS before returning to Python, outside the observation deadline.
+        master, slave = pty.openpty()
         fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack('HHHH', 32, 120, 0, 0))
+        try:
+            process = subprocess.Popen(
+                [sys.executable, str(Path(__file__).resolve()), '--pty-exec', binary],
+                stdin=slave, stdout=slave, stderr=slave, cwd=project,
+                env=environment, start_new_session=True,
+            )
+        except BaseException:
+            os.close(master)
+            raise
+        finally:
+            os.close(slave)
+        os.set_blocking(master, False)
         captured = b''
         started = time.monotonic()
         resized = False
         embedded = False
         try:
-            while time.monotonic() - started < 30:
+            while time.monotonic() - started < timeout:
                 if (expect_native and time.monotonic() - started > 5
                         and b'6.1' in ANSI.sub(b'', captured)):
                     assert b'AURORA_LINE_ONE' not in captured
@@ -78,6 +91,8 @@ print("AURORA_MODE_LINE")
                     continue
                 try:
                     data = os.read(master, 65536)
+                except BlockingIOError:
+                    continue
                 except OSError:
                     break
                 if not data:
@@ -101,28 +116,25 @@ print("AURORA_MODE_LINE")
                     if not resized:
                         captured = b''
                         fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack('HHHH', 32, 40, 0, 0))
-                        os.kill(pid, signal.SIGWINCH)
+                        os.kill(process.pid, signal.SIGWINCH)
                         resized = True
             plain = ANSI.sub(b'', captured).decode('utf-8', 'replace')
             observed = (root / 'fast-state.json').read_text() if (root / 'fast-state.json').exists() else 'no payload'
             raise AssertionError(f'footer acceptance failed (embedded={embedded}, resized={resized}, expected_fast={fast}, observed={observed}): {plain[-4000:]}')
         finally:
             try:
-                os.write(master, b'\x03\x03')
-                deadline = time.monotonic() + 3
-                while time.monotonic() < deadline:
-                    if os.waitpid(pid, os.WNOHANG)[0]:
-                        break
-                    time.sleep(0.1)
-                else:
-                    os.killpg(pid, signal.SIGKILL)
-                    os.waitpid(pid, 0)
-            except (OSError, ChildProcessError):
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
                 pass
-            os.close(master)
+            finally:
+                os.close(master)
+                process.wait(timeout=3)
 
 
 if __name__ == '__main__':
+    if len(sys.argv) == 3 and sys.argv[1] == '--pty-exec':
+        fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+        os.execv(sys.argv[2], [sys.argv[2], '--no-daemon', '--no-alt-screen'])
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('binary')
     parser.add_argument('--expect-native', action='store_true')

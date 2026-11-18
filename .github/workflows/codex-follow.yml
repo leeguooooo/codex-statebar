@@ -45,6 +45,8 @@ jobs:
         env:
           FORCED: ${{ inputs.codex_version }}
         run: |
+          set -euo pipefail
+          # shellcheck disable=SC2016
           cur=$(sed -n 's/^VERSION="\${CODEX_VERSION:-\([0-9.]*\)}"$/\1/p' scripts/build-patched-codex.sh)
           if [ -n "$FORCED" ]; then
             new="$FORCED"
@@ -53,10 +55,23 @@ jobs:
                     --json tagName,isLatest -q '.[]|select(.isLatest)|.tagName' | sed 's/^rust-v//')
           fi
           echo "current=$cur upstream=$new"
-          newer=$(python3 -c "import sys;t=lambda v:tuple(int(x) for x in v.split('.'));print('yes' if t(sys.argv[2])>t(sys.argv[1]) else 'no')" "$cur" "$new" 2>/dev/null || echo no)
-          echo "cur=$cur" >> "$GITHUB_OUTPUT"
-          echo "new=$new" >> "$GITHUB_OUTPUT"
-          echo "newer=$newer" >> "$GITHUB_OUTPUT"
+          newer=$(python3 -c "import sys;t=lambda v:tuple(int(x) for x in v.split('.'));print('yes' if t(sys.argv[2])>t(sys.argv[1]) else 'no')" "$cur" "$new")
+          {
+            echo "cur=$cur"
+            echo "new=$new"
+            echo "newer=$newer"
+          } >> "$GITHUB_OUTPUT"
+          if [ "$newer" = no ]; then
+            version=$(sed -n 's/^version = "\(.*\)"$/\1/p' pyproject.toml | head -1)
+            gh release list --limit 100 --json tagName,isDraft > "$RUNNER_TEMP/releases.json"
+            pending=$(python3 scripts/pending_release.py "$version" < "$RUNNER_TEMP/releases.json")
+            if [ -n "$pending" ]; then
+              git rev-parse --verify "refs/tags/$pending"
+              echo "pending_tag=$pending" >> "$GITHUB_OUTPUT"
+              echo "Recovering unpublished $pending (Codex $cur)"
+              echo "new=$cur" >> "$GITHUB_OUTPUT"
+            fi
+          fi
 
       - name: Port patch
         id: port
@@ -79,7 +94,7 @@ jobs:
             echo "failed=apply" >> "$GITHUB_OUTPUT"
             exit 1
           fi
-          find "$src" -name '*.orig' -o -name '*.rej' | xargs -r rm -f
+          find "$src" -type f \( -name '*.orig' -o -name '*.rej' \) -delete
           git -C "$src" add -A
           git -C "$src" diff --cached > "patches/codex-$NEW-external-status-line.patch"
           echo "src=$src" >> "$GITHUB_OUTPUT"
@@ -125,23 +140,43 @@ jobs:
 
       # Tags pushed with GITHUB_TOKEN don't trigger workflows; dispatch explicitly.
       - name: Build release
-        if: steps.tag.outputs.tag != ''
+        if: steps.tag.outputs.tag != '' || steps.ver.outputs.pending_tag != ''
         env:
-          TAG: ${{ steps.tag.outputs.tag }}
+          TAG: ${{ steps.tag.outputs.tag || steps.ver.outputs.pending_tag }}
         run: |
           set -euo pipefail
-          gh workflow run release-binaries.yml --ref "$TAG"
-          for _ in $(seq 1 30); do
-            sleep 10
-            id=$(gh run list -w release-binaries.yml -b "$TAG" -L 1 --json databaseId -q '.[0].databaseId')
-            [ -n "$id" ] && break
-          done
+          # Reuse an active run; retry only failed jobs after transient runner
+          # outages. A successful draft needs publishing, not another build.
+          gh run list -w release-binaries.yml -b "$TAG" -L 1 \
+            --json databaseId,status,conclusion > "$RUNNER_TEMP/run.json"
+          id=$(python3 -c 'import json,sys;r=json.load(sys.stdin);print(r[0]["databaseId"] if r else "")' < "$RUNNER_TEMP/run.json")
+          state=$(python3 -c 'import json,sys;r=json.load(sys.stdin);print(r[0]["status"] if r else "")' < "$RUNNER_TEMP/run.json")
+          result=$(python3 -c 'import json,sys;r=json.load(sys.stdin);print(r[0]["conclusion"] if r else "")' < "$RUNNER_TEMP/run.json")
+          if [ "$state" = completed ] && [ "$result" != success ]; then
+            attempt=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id" --jq .run_attempt)
+            gh run rerun "$id" --failed
+            ready=no
+            for _ in $(seq 1 30); do
+              current=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id" --jq .run_attempt)
+              if [ "$current" -gt "$attempt" ]; then ready=yes; break; fi
+              sleep 10
+            done
+            test "$ready" = yes
+          elif [ -z "$id" ]; then
+            gh workflow run release-binaries.yml --ref "$TAG"
+            for _ in $(seq 1 30); do
+              sleep 10
+              id=$(gh run list -w release-binaries.yml -b "$TAG" -L 1 --json databaseId -q '.[0].databaseId')
+              [ -n "$id" ] && break
+            done
+          fi
+          test -n "$id"
           gh run watch "$id" --exit-status --interval 60
 
       - name: Publish release
-        if: steps.tag.outputs.tag != ''
+        if: steps.tag.outputs.tag != '' || steps.ver.outputs.pending_tag != ''
         env:
-          TAG: ${{ steps.tag.outputs.tag }}
+          TAG: ${{ steps.tag.outputs.tag || steps.ver.outputs.pending_tag }}
           CUR: ${{ steps.ver.outputs.cur }}
           NEW: ${{ steps.ver.outputs.new }}
         run: |
@@ -154,7 +189,7 @@ jobs:
             while read -r n; do gh issue close "$n" --comment "已由 $TAG 跟进到 Codex $NEW。" || true; done
 
       - name: Open issue on failure
-        if: failure() && steps.ver.outputs.newer == 'yes'
+        if: failure() && (steps.ver.outputs.newer == 'yes' || steps.ver.outputs.pending_tag != '')
         env:
           NEW: ${{ steps.ver.outputs.new }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
