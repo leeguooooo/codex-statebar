@@ -53,19 +53,13 @@ def _patch_gap_install(tmp_path, patched, official, *, host=True):
     )
 
 
-def test_patched_build_is_kept_when_official_is_one_patch_ahead(tmp_path):
-    decision = _patch_gap_install(tmp_path, "0.167.1", "0.167.2")
-
-    assert decision.selected is decision.patched
-    assert "one patch release ahead" in decision.reason
-
-
 @pytest.mark.parametrize("patched,official", [
+    ("0.167.1", "0.167.2"),
     ("0.167.0", "0.167.2"),          # two patch releases
     ("0.167.9", "0.168.0"),          # minor bump
     ("0.167.1-alpha.1", "0.167.2"),  # not a stable patched build
 ])
-def test_larger_version_gaps_still_route_to_official(tmp_path, patched, official):
+def test_newer_versions_route_to_official(tmp_path, patched, official):
     decision = _patch_gap_install(tmp_path, patched, official)
 
     assert decision.selected is decision.official
@@ -905,3 +899,24 @@ def test_symlinked_lease_directory_prevents_pruning(tmp_path):
 
     assert old.exists()
     assert not list(external.iterdir())
+
+
+def test_update_uses_official_even_when_patched_is_selected(tmp_path, monkeypatch):
+    decision = _patch_gap_install(tmp_path, "0.170.0", "0.169.1")
+    assert decision.selected is decision.patched
+    monkeypatch.setattr(codex_launcher, "inspect_install", lambda: decision)
+    monkeypatch.setenv("CODEX_STATEBAR_STATUS_COMMAND", "fixture")
+    def run(paths, args, env):
+        assert paths == [decision.official.path]
+        assert args == ["update", "--help"]
+        assert "CODEX_STATEBAR_STATUS_COMMAND" not in env
+        return 42
+    monkeypatch.setattr(codex_launcher, "_exec_chain", run)
+    assert codex_launcher.launch(["update", "--help"]) == 42
+
+
+def test_update_without_official_reports_missing_cli(tmp_path, monkeypatch, capsys):
+    decision = codex_launcher.inspect_install(managed_dir=tmp_path, path_value="")
+    monkeypatch.setattr(codex_launcher, "inspect_install", lambda: decision)
+    assert codex_launcher.launch(["update"]) == 127
+    assert "install the official Codex CLI" in capsys.readouterr().err

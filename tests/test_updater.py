@@ -600,12 +600,3 @@ def test_upgrade_note_says_when_codex_itself_is_behind(
     note = updater.codex_follow_note()
     for fragment in expected:
         assert fragment in note
-
-
-def test_codex_update_prints_the_follow_note(monkeypatch, capsys):
-    from codex_statebar import codex_launcher
-    monkeypatch.setattr(updater, "upgrade_current_install", lambda: (True, "Reinstalled cxs from v0.5.13"))
-    monkeypatch.setattr(updater, "codex_follow_note", lambda: "Codex itself was not upgraded: fixture")
-    assert codex_launcher.launch(["update"]) == 0
-    out = capsys.readouterr().out
-    assert "Reinstalled cxs" in out and "Codex itself was not upgraded" in out
