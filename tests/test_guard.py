@@ -47,10 +47,3 @@ def test_plist_watches_install_dir():
     body = guard.build_plist('/u/.local/bin/cxs', '/u/.local/bin')
     assert '<string>_guard</string>' in body
     assert '<key>WatchPaths</key>' in body and '/u/.local/bin</string>' in body
-
-
-def test_codex_update_routes_to_cxs_upgrade(monkeypatch, capsys):
-    from codex_statebar import codex_launcher, updater
-    monkeypatch.setattr(updater, 'upgrade_current_install', lambda: (True, 'Upgraded cxs'))
-    assert codex_launcher.launch(['update']) == 0
-    assert 'Upgraded cxs' in capsys.readouterr().out

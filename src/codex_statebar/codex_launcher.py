@@ -244,16 +244,6 @@ def inspect_install(
             "patched Codex is not installed",
         )
     if official and patched and official.version > patched.version:
-        if _one_patch_ahead(official, patched) and _has_code_mode_host(patched, official):
-            # A patch release lands upstream hours before the patched build
-            # follows. Keep the status bar for that gap; the background
-            # updater installs the matching build once it is published.
-            return LaunchDecision(
-                patched,
-                patched,
-                official,
-                "official Codex is one patch release ahead; patched build kept",
-            )
         return LaunchDecision(
             official,
             patched,
@@ -310,26 +300,6 @@ def _code_mode_host_candidates(
     yield from sorted(resolved.parent.parent.glob(
         f"node_modules/@openai/codex-*/vendor/{arch}-*{system}*/bin/{name}"
     ))
-
-
-def _one_patch_ahead(official: CodexBinary, patched: CodexBinary) -> bool:
-    return (
-        official.version[3] == 1
-        and patched.version[3] == 1
-        and official.version[:2] == patched.version[:2]
-        and official.version[2] == patched.version[2] + 1
-    )
-
-
-def _has_code_mode_host(patched: CodexBinary, official: Optional[CodexBinary]) -> bool:
-    """True when the patched build can find a tool host of its own version."""
-    target = patched.path.parent / _code_mode_host_name()
-    if target.is_file() and not target.is_symlink():
-        return True
-    return any(
-        candidate.is_file() and os.access(candidate, os.X_OK)
-        for candidate in _code_mode_host_candidates(patched, official)
-    )
 
 
 def ensure_code_mode_host(
@@ -624,17 +594,15 @@ def launch(args: Sequence[str]) -> int:
     if os.environ.get(_VERSION_PROBE_ENV):
         print("codex-statebar: refused recursive Codex version probe", file=sys.stderr)
         return 126
-    if list(args) == ["update"]:
-        # Codex's own updater can't recognise this install and tells users to
-        # reinstall by hand, which overwrites the launcher. Update ours instead.
-        from .updater import codex_follow_note, upgrade_current_install
-        ok, message = upgrade_current_install()
-        print(message, file=sys.stdout if ok else sys.stderr)
-        if ok:
-            note = codex_follow_note()
-            if note:
-                print(note)
-        return 0 if ok else 1
+    if args and args[0] == "update":
+        official = inspect_install().official
+        if official is None:
+            print("codex-statebar: install the official Codex CLI to use codex update: "
+                  "https://developers.openai.com/codex/cli/", file=sys.stderr)
+            return 127
+        environment = independent_process_environment()
+        environment.pop("CODEX_STATEBAR_STATUS_COMMAND", None)
+        return _exec_chain([official.path], args, environment)
     try:
         from .guard import ensure_installed
         ensure_installed()
