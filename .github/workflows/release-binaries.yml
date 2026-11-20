@@ -145,7 +145,10 @@ jobs:
           - os: ubuntu-24.04-arm
             target: linux-arm64
             jobs: 4
-    runs-on: ${{ matrix.os }}
+    # vars.MAC_RUNNER names a self-hosted Mac label (e.g. codex-build); its target
+    # dir persists between releases, so builds stay warm. Unset it to fall back
+    # to GitHub-hosted macOS. Tag/dispatch-only workflow: no fork code reaches it.
+    runs-on: ${{ startsWith(matrix.os, 'macos') && vars.MAC_RUNNER || matrix.os }}
     timeout-minutes: 180
     env:
       CARGO_BUILD_JOBS: ${{ matrix.jobs }}
@@ -167,7 +170,7 @@ jobs:
           toolchain: 1.99.1
           targets: ${{ matrix.cross }}
       - uses: actions/cache/restore@v4
-        if: needs.find-patched-codex.outputs.source_run == ''
+        if: needs.find-patched-codex.outputs.source_run == '' && runner.environment != 'self-hosted'
         with:
           path: |
             ~/.cargo/registry
@@ -175,8 +178,17 @@ jobs:
             build/target
           key: codex-${{ matrix.target }}-${{ hashFiles('patches/codex-*.patch', 'scripts/build-patched-codex.sh') }}
           restore-keys: codex-${{ matrix.target }}-
-      - run: ./scripts/build-patched-codex.sh
+      - name: Build patched Codex
         if: needs.find-patched-codex.outputs.source_run == ''
+        shell: bash
+        run: |
+          if [ "$RUNNER_ENVIRONMENT" = self-hosted ]; then
+            # Outside the workspace so checkout's clean keeps the warm build.
+            export CARGO_TARGET_DIR="$HOME/.cache/codex-statebar/target"
+            export CODEX_BUILD_ROOT="$HOME/.cache/codex-statebar/codex"
+            export CARGO_BUILD_JOBS=6
+          fi
+          ./scripts/build-patched-codex.sh
       - name: Recover matching compiled Codex
         if: needs.find-patched-codex.outputs.source_run != ''
         uses: actions/download-artifact@v4
@@ -214,10 +226,10 @@ jobs:
             codex-cxs-${{ matrix.target }}.tar.gz
             codex-cxs-${{ matrix.target }}.tar.gz.sha256
       - name: Keep only dependency artifacts in the cache
-        if: always() && needs.find-patched-codex.outputs.source_run == ''
+        if: always() && needs.find-patched-codex.outputs.source_run == '' && runner.environment != 'self-hosted'
         run: python3 scripts/prune_codex_target.py build/codex/source/codex-rs/Cargo.toml build/target || true
       - uses: actions/cache/save@v4
-        if: always() && needs.find-patched-codex.outputs.source_run == ''
+        if: always() && needs.find-patched-codex.outputs.source_run == '' && runner.environment != 'self-hosted'
         with:
           path: |
             ~/.cargo/registry
