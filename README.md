@@ -17,7 +17,7 @@ cxs doctor
 
 The installer verifies SHA-256 checksums, installs `cxs` and the patched `codex-cxs`, then adds a user-level `codex` launcher. An existing `~/.local/bin/codex` is backed up first; the binary bundled with the ChatGPT app is never modified.
 
-The launcher compares the official Codex on your PATH with the patched build. When the patched build is the same version or newer, it runs `codex-cxs`. The `codex update` command runs the official updater. When the official CLI is newer, the launcher runs the official one and the embedded status bar pauses until a matching patched build is installed; `cxs doctor` shows which one was picked. `cxs upgrade` verifies and updates `cxs` and `codex-cxs` together.
+The launcher compares the official Codex on your PATH with the patched build. When the patched build is the same version or newer, it runs `codex-cxs`. The `codex update` command runs the official updater. When the official CLI is newer, the launcher picks it and pauses the patched multi-line status bar. Official Codex 0.172 can use the MCP provider below. Run `cxs doctor` to see the selected binary. `cxs upgrade` verifies and updates `cxs` and `codex-cxs` together.
 
 GitHub Actions builds standalone binaries for macOS and Linux, so you need neither Python nor Rust. To skip the user-level launcher:
 
@@ -53,6 +53,16 @@ Visual settings come from `~/.codex/codex-statebar.json` first. Without a Codex-
 ## Embedded in the Codex TUI
 
 The installer configures everything; open a new terminal and run `codex`. The current patch targets Codex 0.171.0, and Aurora and the other multi-line styles appear under the input box. `config.toml` keeps the native fields as a fallback, and the rich status command is passed only to the selected patched process. If the official Codex is newer than the patched build, the launcher prefers the official one.
+
+### Official Codex 0.172
+
+Use a cxs build that includes the command below. Register the provider on the machine running the Codex app server. Use the installed `cxs` path if the app server has a different PATH.
+
+```sh
+codex mcp add cxs -- cxs mcp-statusline
+```
+
+In Codex, enable **Custom status line** in `/experimental`, restart the TUI, then open `/statusline` and choose **Choose a status line provider → cxs · Codex Statebar**. The provider shows the current model, context usage, and the 5-hour and 7-day usage percentages when Codex supplies them. The compact layout wraps on narrow terminals. Select **Default status line** to switch back.
 
 ## New looks, worktrees and OCS
 

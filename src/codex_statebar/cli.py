@@ -21,6 +21,7 @@ SUBCOMMANDS = (
     "install-commands",
     "install-skill",
     "doctor",
+    "mcp-statusline",
     "watch",
     "daemon",
     "upgrade",
@@ -335,6 +336,12 @@ def main():
                 theme_filter=theme_filter,
                 style_filter=style_filter,
             )
+        if sub == "mcp-statusline":
+            if rest:
+                print("usage: cxs mcp-statusline", file=sys.stderr)
+                return 2
+            from .mcp_statusline import main as serve_statusline
+            return serve_statusline()
         if sub == "doctor":
             from .doctor import run as run_doctor
             return run_doctor()
@@ -389,6 +396,7 @@ Examples:
   cxs styles                     # List available styles
   cxs preview                    # Render every style × theme together
   cxs watch                      # Live standalone dashboard
+  cxs mcp-statusline             # Serve the official Codex MCP status line
   cxs install-skill              # Install the Codex control skill
   cxs upgrade                    # Upgrade this cxs installation
   cxs --json-output              # Machine-readable JSON
