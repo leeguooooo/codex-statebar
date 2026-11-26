@@ -180,7 +180,7 @@ def test_expired_quota_is_unknown_instead_of_zero(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize('value', [None, 'bad', float('nan'), float('inf'), -1, 1000000000])
 def test_invalid_quota_cannot_break_render(value):
-    fields = rollout._rate_limit_fields({'primary': {
+    fields = rollout.rate_limit_fields({'primary': {
         'used_percent': value, 'window_minutes': 300}})
     assert 'rate_limit_pct' not in fields
 

@@ -17,7 +17,7 @@ cxs doctor
 
 安装脚本会校验 SHA-256，安装 `cxs` 和补丁版 `codex-cxs`，再安装一个用户级 `codex` 启动器。已有的 `~/.local/bin/codex` 会先备份；ChatGPT App 内置二进制不会被修改。
 
-启动器会比较 PATH 中的官方 Codex 和补丁版：补丁版版本相同或更新时运行 `codex-cxs`；`codex update` 会调用官方升级程序。官方版更新时，启动器运行官方版，嵌入式状态栏暂停，直到装上对应的补丁版；`cxs doctor` 会显示当前选择。`cxs upgrade` 会一起校验并更新 `cxs` 与 `codex-cxs`。
+启动器会比较 PATH 中的官方 Codex 和补丁版。补丁版版本相同或更新时运行 `codex-cxs`。`codex update` 会调用官方升级程序。官方版更新时，启动器运行官方版，多行补丁状态栏暂停。官方 0.172 可以使用下方的 MCP 状态栏。`cxs doctor` 会显示当前选择。`cxs upgrade` 会一起校验并更新 `cxs` 与 `codex-cxs`。
 
 GitHub Actions 为 macOS 和 Linux 构建独立二进制，用户端不需要 Python 或 Rust。若不想安装用户级启动器：
 
@@ -52,7 +52,17 @@ macOS / Linux 版首次启动时将运行时展开到 `~/.local/lib/codex-stateb
 
 ## 嵌入 Codex TUI
 
-安装器会自动配置，重新打开终端运行 `codex` 即可。当前补丁基于 Codex 0.171.0，Aurora 等多行样式显示在输入框下方。config.toml 保留原生字段作为后备；富状态栏命令只传给选中的补丁版进程。若官方版比补丁版更新，启动器优先官方版。
+安装器会自动配置，重新打开终端运行 `codex` 即可。当前补丁基于 Codex 0.172.0，Aurora 等多行样式显示在输入框下方。config.toml 保留原生字段作为后备；富状态栏命令只传给选中的补丁版进程。若官方版比补丁版更新，启动器优先官方版。
+
+### 官方 Codex 0.172
+
+使用包含下方命令的 cxs 构建，在运行 Codex app server 的机器上注册 provider。如果 app server 的 PATH 不同，请用 `cxs` 的安装路径。
+
+```sh
+codex mcp add cxs -- cxs mcp-statusline
+```
+
+在 Codex 的 `/experimental` 中启用 **Custom status line**，重启 TUI，然后进入 `/statusline`，选择 **Choose a status line provider → cxs · Codex Statebar**。状态栏显示模型，以及 Codex 提供的上下文用量、5 小时和 7 天额度用量百分比。紧凑布局会在窄窗口自动换行。选择 **Default status line** 可切回默认样式。
 
 ## 新外观、worktree 与 OCS
 

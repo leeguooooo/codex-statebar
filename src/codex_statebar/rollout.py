@@ -221,7 +221,7 @@ def _external_payload(data: dict) -> Dict[str, Any]:
                             ("seven_day", "_7d")):
             window = limits.get(key)
             if isinstance(window, dict):
-                fields = _rate_limit_fields({"primary": {
+                fields = rate_limit_fields({"primary": {
                     "used_percent": window.get("used_percent", window.get("used_percentage")),
                     "window_minutes": 10080 if suffix else 300,
                     "resets_at": window.get("resets_at"),
@@ -238,7 +238,7 @@ def _finite_number(value: Any) -> Optional[float]:
     return number if math.isfinite(number) and number >= 0 else None
 
 
-def _rate_limit_fields(rate_limits: dict) -> Dict[str, Any]:
+def rate_limit_fields(rate_limits: dict) -> Dict[str, Any]:
     out: Dict[str, Any] = {}
     for key in ("primary", "secondary"):
         window = rate_limits.get(key)
@@ -329,7 +329,7 @@ def collect_status(data: Optional[dict] = None) -> Dict[str, Any]:
                 token_event = payload
             limits = payload.get("rate_limits")
             if isinstance(limits, dict):
-                for key, value in _rate_limit_fields(limits).items():
+                for key, value in rate_limit_fields(limits).items():
                     quota_fields.setdefault(key, value)
                 if limits.get("plan_type"):
                     quota_fields.setdefault("plan_type", limits["plan_type"])

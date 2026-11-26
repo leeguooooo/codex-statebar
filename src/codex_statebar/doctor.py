@@ -139,7 +139,7 @@ def run() -> int:
     rich_hook = _binary_contains(rich_hook_path, _EXTERNAL_STATUS_MARKER)
     _line("rich command hook",
           "patched Codex external command enabled" if rich_hook
-          else "not provided by stable Codex; cxs/tmux/watch work now",
+          else "legacy patch hook unavailable; official Codex 0.172 can use cxs mcp-statusline",
           rich_hook)
 
     try:

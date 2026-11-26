@@ -19,7 +19,7 @@ import time
 ANSI = re.compile(rb'\x1b\[[0-?]*[ -/]*[@-~]')
 
 
-def verify(binary, expect_native=False, fast=False, timeout=30):
+def verify(binary, expect_native=False, fast=False, timeout=30, *, cxs_provider=False):
     binary = str(Path(binary).resolve())
     with tempfile.TemporaryDirectory(prefix='codex-footer-acceptance-') as directory:
         root = Path(directory)
@@ -41,12 +41,17 @@ wire_api = "responses"
 requires_openai_auth = false
 '''
         config = 'service_tier = ' + json.dumps('priority' if fast else 'default') + '\n' + config
+        if cxs_provider:
+            config = 'features.tui_extensions_statusline = true\n' + config.replace(
+                'status_line = ["model"]',
+                'status_line = ["model"]\nstatus_line_provider = { server = "cxs", tool = "statusline" }',
+            )
         config += '\n[projects.' + json.dumps(str(project)) + ']\ntrust_level = "trusted"\n'
         (codex / 'config.toml').write_text(config)
         renderer = root / 'renderer.py'
         renderer.write_text('''import json, os, sys
 data = json.load(sys.stdin)
-assert data["codex_version"] == "0.171.0"
+assert data["codex_version"] == "0.172.0"
 with open(os.environ["FAST_PROBE_PATH"], "w") as probe:
     json.dump({"fast_mode": data.get("fast_mode")}, probe)
 assert data["fast_mode"] is (os.environ["EXPECT_FAST"] == "1")
@@ -109,6 +114,7 @@ print("AURORA_MODE_LINE")
                     assert 0 < columns <= 40
                     return {'embedded_three_rows': True, 'resize_width_verified': True,
                             'resize_columns': columns, 'fast_mode': fast,
+                            'cxs_provider_selected': cxs_provider,
                             'isolated_auth': True, 'prompts_sent': 0}
                 if not expect_native and not resized and all(marker in plain for marker in
                          (b'AURORA_LINE_ONE', b'AURORA_PROJECT_LINE', b'AURORA_MODE_LINE')):
@@ -141,5 +147,5 @@ if __name__ == '__main__':
     args = parser.parse_args()
     results = [verify(args.binary, args.expect_native)]
     if not args.expect_native:
-        results.append(verify(args.binary, fast=True))
+        results.append(verify(args.binary, fast=True, cxs_provider=True))
     print(json.dumps(results, indent=2))

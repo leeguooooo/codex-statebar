@@ -41,7 +41,7 @@ def test_one_click_installs_both_binaries_and_backs_up_codex(tmp_path: Path):
         assets,
         f"cxs-{target}.tar.gz",
         "cxs",
-        b"#!/bin/sh\nprintf '%s\\n' \"$@\"\n",
+        b'#!/bin/sh\nprintf \'%s\\n\' "$CODEX_STATEBAR_MANAGED_DIR" "$@"\n',
     )
     _write_asset(
         assets,
@@ -85,14 +85,21 @@ def test_one_click_installs_both_binaries_and_backs_up_codex(tmp_path: Path):
         encoding="utf-8"
     )
     assert len(list(install_dir.glob("codex.backup.*"))) == 1
-    launched = subprocess.run(
-        [str(install_dir / "codex"), "--version"],
-        text=True,
-        capture_output=True,
-        timeout=5,
-    )
-    assert launched.returncode == 0
-    assert launched.stdout.splitlines() == ["_launch-codex", "--version"]
+    env.pop("CODEX_STATEBAR_MANAGED_DIR", None)
+    for managed_dir in (None, str(tmp_path / "preview")):
+        if managed_dir is not None:
+            env["CODEX_STATEBAR_MANAGED_DIR"] = managed_dir
+        launched = subprocess.run(
+            [str(install_dir / "codex"), "--version"],
+            env=env,
+            text=True,
+            capture_output=True,
+            check=True,
+            timeout=5,
+        )
+        assert launched.stdout.splitlines() == [
+            managed_dir or str(install_dir.resolve()), "_launch-codex", "--version",
+        ]
 
 
 def test_one_click_migrates_old_managed_symlink_without_overwriting_binary(

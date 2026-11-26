@@ -1,5 +1,8 @@
 """Self-healing when Codex's standalone installer replaces our launcher."""
 import os
+import subprocess
+
+import pytest
 
 from codex_statebar import guard
 
@@ -26,6 +29,28 @@ def test_restores_launcher_replaced_by_standalone_installer(tmp_path):
     codex = tmp_path / 'codex'
     assert not codex.is_symlink() and guard._is_ours(codex)
     assert os.access(codex, os.X_OK)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX launcher")
+def test_repaired_launcher_preserves_explicit_managed_directory(tmp_path):
+    _install(tmp_path)
+    cxs = tmp_path / "cxs"
+    cxs.write_text('#!/bin/sh\nprintf "%s\\n" "$CODEX_STATEBAR_MANAGED_DIR"\n')
+    cxs.chmod(0o755)
+    launcher = tmp_path / "codex"
+    launcher.unlink()
+    assert guard.repair(tmp_path) == ["codex"]
+
+    override = str(tmp_path / "preview")
+    result = subprocess.run(
+        [str(launcher)],
+        env=dict(os.environ, CODEX_STATEBAR_MANAGED_DIR=override),
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=5,
+    )
+    assert result.stdout.strip() == override
 
 
 def test_healthy_install_is_a_no_op(tmp_path):

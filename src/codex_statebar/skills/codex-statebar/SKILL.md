@@ -29,12 +29,18 @@ Use `cxs` for Codex CLI status-bar requests. Prefer commands over editing
 
 The managed `codex` launcher automatically enables the embedded multi-line
 renderer when the installed patched Codex is at least as new as the official
-CLI. Use `codex update` to update the official CLI. The patch targets Codex 0.171.0. `cxs doctor` reports the selected binary
+CLI. Use `codex update` to update the official CLI. The patch targets Codex 0.172.0. `cxs doctor` reports the selected binary
 and whether its rich command hook is available.
 
 `cxs --setup` keeps native `[tui].status_line` items as the fallback. The
 external argv is passed only to the selected patched process, so a newer
 official CLI can still start normally. `cxs watch` is optional for standalone
-use. Do not claim embedding works when doctor selects an unpatched CLI.
+use.
+
+For official Codex 0.172, use the compact MCP footer. Register it on the
+Codex app-server host with `codex mcp add cxs -- cxs mcp-statusline`.
+Enable **Custom status line** in `/experimental`, restart the TUI, then
+choose **cxs · Codex Statebar** in the `/statusline` provider picker.
+It shows the model and available context and quota percentages.
 
 The bar and the `codex` launcher check GitHub Releases in the background every six hours, or every 30 minutes while the patched Codex is older than the official one; releases that follow a new Codex version install automatically. `auto_upgrade=false` keeps checks but disables installation; `CODEX_STATEBAR_NO_UPDATE=1` disables checks. `show_ocs` controls exact-thread OCS address/unread/LAN display. Worktree counts exclude deleted checkouts. New-look notices are acknowledged by `cxs theme`; never edit config during rendering.

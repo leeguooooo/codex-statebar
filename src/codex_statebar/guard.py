@@ -32,7 +32,7 @@ LAUNCHER = "\n".join((
     "# managed by codex-statebar",
     "set -eu",
     'bin_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)',
-    'export CODEX_STATEBAR_MANAGED_DIR="$bin_dir"',
+    'export CODEX_STATEBAR_MANAGED_DIR="${CODEX_STATEBAR_MANAGED_DIR:-$bin_dir}"',
     'exec "$bin_dir/cxs" _launch-codex "$@"',
 )) + "\n"
 
